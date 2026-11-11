@@ -30,7 +30,7 @@ ngrok http 127.0.0.1:8083
 
 [API 상세 명세 및 요청 예시](docs/route-api/README.md)를 참고하세요. 현재 테스트용 서버이며 동시 계산과 요청량에 제한이 있습니다.
 
-공중화장실·방범카메라 기능은 [시설 데이터 연동 명세](docs/facilities/DATA_SPEC.md)에 출처, 원본 필드, 좌표 처리와 후속 작업을 정리했습니다. 현재는 설계 단계이며 시설 조회 API는 아직 구현되지 않았습니다.
+공중화장실·방범카메라 기능은 [시설 데이터 연동 명세](docs/facilities/DATA_SPEC.md)에 출처, 원본 필드, 좌표 처리와 후속 작업을 정리했습니다. [시설 저장소](docs/facilities/STORAGE.md)는 구현되어 있으며, 실제 수집과 시설 조회 HTTP API는 아직 구현되지 않았습니다.
 
 Windows 일괄 실행은 `start-route-api.cmd`를 사용합니다. 이 실행기는 사용자 로컬의 Python 3.13과 `.cache/ngrok/ngrok.exe`를 사용하므로 해당 경로에 먼저 설치해야 합니다. 창을 닫으면 실행기가 시작한 서버와 터널이 종료됩니다.
 
