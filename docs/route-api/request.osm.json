@@ -1,0 +1,25 @@
+{
+  "location": [
+    127.0374,
+    37.5445
+  ],
+  "radius_m": 1500,
+  "data_source": "osm",
+  "search_seconds": 8,
+  "drawing": [
+    [
+      100,
+      80
+    ],
+    [
+      100,
+      320
+    ],
+    [
+      400,
+      320
+    ]
+  ],
+  "distance_m": 2000,
+  "candidate_limit": 5
+}

@@ -1,0 +1,30 @@
+# Credentials and machine-specific settings
+.env
+.env.*
+!.env.example
+.api-token
+local-config.json
+*.pem
+*.key
+*.p12
+*.pfx
+ngrok.yml
+ngrok.yaml
+# Local data, logs and generated artifacts
+.cache/
+artifacts/
+__pycache__/
+*.py[cod]
+*.log
+*.pid
+*.sqlite*
+*.db
+*.osm
+*.pbf
+.venv/
+venv/
+node_modules/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

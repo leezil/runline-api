@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DrawRun · 로컬 API 테스트</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+  <script src="/request-logs.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">DRAWRUN / API PLAYGROUND</p><h1>그림을 보내고, 경로를 받아보세요.</h1>
+      <p>계산은 이 PC에서 실행합니다. 이 화면은 로컬 전용이며, ngrok은 별도의 API 전용 포트에 연결합니다.</p></div>
+      <span id="health" class="badge">서버 확인 중</span>
+    </header>
+    <section class="notice">실제 도로는 OSM, 가상 도로는 기능 검증용입니다. 결과가 없을 수도 있으며 통행 가능성과 안전은 별도 확인이 필요합니다.</section>
+    <section class="panel" aria-labelledby="request-log-title" style="margin:20px 0">
+      <p class="eyebrow">LIVE / API REQUESTS</p>
+      <h2 id="request-log-title">API 요청 실행 로그</h2>
+      <p>외부 API(8083)와 이 화면의 경로 생성 요청을 확인합니다. 최근 200건 · 1초마다 갱신 · 서버 재시작 시 초기화됩니다.</p>
+      <div class="toolbar"><label>표시 범위 <select id="log-filter"><option value="external">외부 API만</option><option value="all">외부 + 로컬 테스트</option></select></label><button id="log-pause" type="button">갱신 일시정지</button><span id="log-connection" role="status">로그 연결 중</span></div>
+      <p class="hint">토큰·요청 본문·그림 좌표는 기록하지 않습니다. ngrok에서 차단되어 서버에 도달하지 않은 요청은 표시되지 않습니다.</p>
+      <div style="overflow:auto;max-height:360px"><table style="width:100%;border-collapse:collapse;text-align:left;white-space:nowrap"><thead><tr><th>접수 시간</th><th>구분</th><th>요청</th><th>처리 단계</th><th>HTTP</th><th>소요 시간</th><th>결과</th></tr></thead><tbody id="request-log-body"></tbody></table></div>
+    </section>
+    <div class="workspace">
+      <section class="panel">
+        <p class="eyebrow">01 / INPUT</p><h2>한 줄로 그리기</h2>
+        <canvas id="drawing" width="500" height="400" aria-label="한 번에 이어진 그림을 그리는 캔버스"></canvas>
+        <div class="toolbar"><button type="button" data-shape="corner">ㄱ자</button><button type="button" data-shape="square">사각형</button><button type="button" data-shape="star">별</button><button type="button" id="clear">지우기</button><span id="point-count"></span></div>
+        <p class="hint">새로 그리면 이전 선을 대체합니다. 예제는 입력만 넣으며, 엔진은 모양의 이름을 인식하지 않습니다.</p>
+        <form id="controls">
+          <label>도로 데이터<select id="source"><option value="demo">가상 도로 · 인터넷 없이 기능 테스트</option><option value="osm" selected>실제 OSM 도로</option></select></label>
+          <div class="fields"><label>경도<input id="lng" type="number" value="126.9662925" step="any" min="124" max="132" required></label><label>위도<input id="lat" type="number" value="37.3033769" step="any" min="32" max="39" required></label></div>
+          <p class="hint">성균관대역 주변의 기존 테스트 기준점입니다(역 건물의 중심점은 아닙니다). location 배열은 [경도, 위도] 순서입니다.</p>
+          <div class="fields"><label>러닝 거리 (m)<input id="distance" type="number" value="2000" min="300" max="8000" required></label><label>출발점 이동 상한 (m)<input id="approach" type="number" value="1000" min="0" max="1500" required></label></div>
+          <div class="fields"><label>도로 조회 반경 (m)<input id="radius" type="number" value="4000" min="800" max="4000" required></label><label>희망 후보 수<input id="limit" type="number" value="10" min="1" max="30" required></label></div>
+          <div class="fields"><label>거리 허용 오차<select id="tolerance"><option value="0.2">±20%</option><option value="0.3">±30%</option><option value="0.5">±50%</option><option value="0.1">±10%</option></select></label><label>탐색 예산<select id="seconds"><option value="5">5초 · 빠른 연결 확인</option><option value="15">15초 · 중간 탐색</option><option value="45">45초 · 기존 엔진 수준</option></select></label></div>
+          <div class="fields"><label>시작·도착<select id="route-type"><option value="auto">그림에 따라 자동</option><option value="open">열린 경로</option><option value="loop">순환 경로</option></select></label><label>탐색 방식<select id="mode"><option value="overview">위치별 대표 후보</option><option value="all">전체 후보</option></select></label></div>
+          <label>OSM 도로 데이터<select id="provider"><option value="local">내 PC · 대한민국 OSM (Geofabrik)</option></select></label>
+          <div class="checks"><label><input id="rotation" type="checkbox" checked> 회전 허용</label><label><input id="adjustment" type="checkbox" checked> 꼭짓점 소폭 조정</label></div>
+          <button class="primary" id="build" type="submit">입력으로 요청 JSON 만들기</button>
+        </form>
+      </section>
+      <div class="right-column">
+        <section class="panel">
+          <p class="eyebrow">02 / REQUEST</p><h2>API 요청 직접 테스트</h2>
+          <div class="endpoint"><span>POST</span><code>/v1/routes</code></div>
+          <label>경로 API 테스트용 Bearer 토큰<input id="token" type="password" autocomplete="off" spellcheck="false"></label>
+          <p class="hint">ngrok 계정 토큰이 아닙니다. 모바일 테스트용으로만 전달하고 Git이나 배포 앱에 넣지 마세요.</p>
+          <p class="hint" id="tunnel-status">외부 접속 설정을 확인하고 있습니다.</p>
+          <label>요청 JSON <textarea id="request" spellcheck="false" rows="13"></textarea></label>
+          <div class="toolbar"><button id="send" class="primary" type="button" disabled>API로 경로 생성</button><button id="auth-test" type="button" disabled>인증 없이 호출 · 401 확인</button></div>
+          <p class="hint">JSON을 직접 편집해도 됩니다. 탐색 예산은 다운로드 시간을 포함하지 않으며, 짧은 탐색은 후보가 적거나 없을 수 있습니다. 분당 최대 12회, 동시 계산 1개입니다.</p>
+          <p id="status" role="status" aria-live="polite">서버 연결을 확인하고 있습니다.</p>
+        </section>
+        <section class="panel" id="results-panel">
+          <p class="eyebrow">03 / RESPONSE</p><h2>반환된 경로와 JSON</h2>
+          <p id="result-summary">아직 생성한 결과가 없습니다.</p>
+          <div id="result-visual" hidden>
+            <label>후보 선택<select id="candidates"></select></label>
+            <svg id="route-view" viewBox="0 0 600 340" role="img" aria-label="반환된 경로와 원본 선을 같은 좌표 축으로 비교"></svg>
+            <p class="legend"><span class="route-color">생성 경로</span><span class="reference-color">원본 배치선</span><span class="approach-color">접근 구간</span></p>
+            <p class="hint" id="visual-note"></p>
+            <p id="candidate-info"></p>
+          </div>
+          <details id="response-details"><summary>응답 JSON 확인</summary><pre id="response">응답 없음</pre></details>
+          <button id="download" type="button" disabled>요청·응답 JSON 저장 (토큰 제외)</button>
+        </section>
+        <section class="panel contract">
+          <h2>다른 앱과 연결할 때의 약속</h2>
+          <p><code>GET /v1/health</code> 서버 확인 · <code>POST /v1/routes</code> 경로 생성</p>
+          <p><code>Authorization: Bearer &lt;테스트 토큰&gt;</code><br><code>Content-Type: application/json</code></p>
+          <p><code>drawing</code>은 캔버스 [x, y], <code>location</code>과 반환된 GeoJSON 좌표는 [경도, 위도]입니다. 지도에서는 필요한 경우 위도·경도 인자 순서를 바꾸세요.</p>
+          <p>결과는 <code>candidates[].geometry.coordinates</code>에 있습니다. <code>acceptable: false</code>는 비교용, <code>source: synthetic</code>은 가상 도로입니다. HTTP 200이어도 경로 후보는 없을 수 있습니다.</p>
+          <p>400 입력 오류 · 401 인증 오류 · 422 도로/경로 조건 오류 · 429 계산 중 또는 요청 제한. 브라우저의 개발자 도구에서도 실제 요청을 확인할 수 있습니다.</p>
+        </section>
+      </div>
+    </div>
+    <footer>로컬 테스트 화면 · 외부 API는 별도 포트에서만 제공 · Runline 경로 생성 API</footer>
+  </main>
+</body>
+</html>

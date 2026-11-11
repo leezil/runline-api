@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DrawRun — 그림으로 찾는 러닝 경로</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23147b65'/%3E%3Ctext x='7' y='28' fill='white' font-family='sans-serif' font-size='24'%3Edr%3C/text%3E%3C/svg%3E">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="DrawRun 홈"><span class="brand-mark">dr.</span><span>DrawRun<span class="brand-caption">ROUTE LAB</span></span></a>
+    <span class="lab-badge"><span class="status-dot"></span> LOCAL EXPERIMENT · v0.1</span>
+  </header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">YOUR LINE, YOUR RUN</p><h1>그린 선을 따라, 달려볼까요.</h1><p>모양을 알아맞히지 않습니다. 당신이 그린 선에 가까운 도로를 찾습니다.</p></div><span class="intro-note">01 DRAW <span>→</span> 02 FIND <span>→</span> 03 COMPARE</span></section>
+    <div class="workspace">
+      <section class="drawing-panel panel">
+        <div class="panel-heading"><div><p class="eyebrow">01 / DRAW</p><h2>나만의 선 그리기</h2></div><button id="clear" class="quiet">지우기</button></div>
+        <div class="drawing-wrap"><canvas id="drawing" width="600" height="600" aria-label="빈 그림 캔버스. 마우스나 터치로 한 줄을 그리세요."></canvas><div id="drawing-placeholder"><span class="pencil-icon">╱</span><p>빈 곳에 자유롭게 그려주세요</p><small>마우스 · 터치 / 한 번에 이어진 선</small></div><span id="point-count" class="canvas-caption">0 points</span></div>
+        <p id="draw-notice" class="help">새로 그리면 이전 그림을 대체합니다. 교차하거나 되짚는 선도 그릴 수 있어요.</p>
+        <div class="sample-row"><span>빠른 테스트</span><button data-sample="circle">원형</button><button data-sample="star">별</button><button data-sample="eight">8자</button><button data-sample="open">열린 선</button></div>
+        <form id="route-form">
+          <div class="form-heading">러닝 조건</div>
+          <div class="two-col"><label>달릴 거리 <span class="input-unit"><input id="distance" type="number" min="0.3" max="20" step="0.1" value="3" required><span>km</span></span></label><label>출발점까지 최대 이동 <span class="input-unit"><input id="approach" type="number" min="0" max="1500" step="50" value="1000" required><span>m</span></span></label></div>
+          <p class="help">러닝 거리는 최대 20km까지 입력할 수 있습니다. 긴 경로는 데이터 범위 ‘주변 4km’를 권장합니다. 그림이 도로 데이터 범위를 벗어나거나 탐색 시간이 부족하면 후보가 없을 수 있습니다.</p>
+          <p class="help">설정한 거리 이내에서 출발점을 찾습니다. 가까운 위치와 먼 위치를 함께 탐색하며, 모양이 더 비슷한 경로를 우선합니다.</p>
+          <div class="two-col"><label>시작·도착 조건<select id="route-type"><option value="auto">그림에 따라 자동</option><option value="loop">같은 지점 · 순환</option><option value="open">다른 지점 허용</option></select></label><label>거리 허용 오차<select id="tolerance"><option value="0.1">±10%</option><option value="0.2" selected>±20%</option><option value="0.3">±30%</option></select></label></div>
+          <label class="check"><input id="rotation" type="checkbox" checked> 그림 회전 허용 <span>좌우 반전은 하지 않아요</span></label>
+          <label class="check vertex-option"><input id="vertex-adjustment" type="checkbox" checked> 꼭짓점 위치 소폭 조정 <span>원본 모양도 함께 평가해요</span></label>
+          <label>표시할 후보 수<select id="candidate-limit"><option value="10">최대 10개</option><option value="20" selected>최대 20개</option><option value="30">최대 30개</option></select></label>
+          <p class="help">먼저 여러 위치의 대표 경로를 비교합니다. 마음에 드는 위치를 선택해 주변의 다른 경로를 더 찾을 수 있습니다. 각 탐색은 약 45초 이내이며, 조건에 맞는 위치가 적으면 표시 개수도 줄어듭니다.</p>
+          <p class="help">꼭짓점을 찍기 위한 왕복·좁은 평행 왕복을 제외하고, 그림에 없는 작은 고리는 실제 도로 연결을 유지하며 제거합니다. 제거 후에도 거리·모양 조건을 다시 검사합니다. 그림에 직접 그린 되짚기와 교차는 유지합니다.</p>
+          <button id="generate" class="primary generate" type="submit">경로 생성 <span>↗</span></button>
+        </form>
+        <p class="help">이동 구간은 러닝 거리에 포함하지 않습니다. 아직 실험용 탐색이며 모든 모양의 재현을 보장하지 않습니다.</p>
+      </section>
+      <section class="map-panel panel">
+        <div class="panel-heading"><div><p class="eyebrow">02 / FIND</p><h2>도로 위에서 찾은 경로</h2></div><span id="map-badge" class="small-badge">지도 미연결</span></div>
+        <form id="place-search-form" class="place-search" role="search" aria-label="카카오맵 장소 검색">
+          <label for="place-query">장소를 검색해 기준 위치로 선택</label>
+          <div class="place-search-row"><input id="place-query" type="search" placeholder="예: 서울숲, 잠실역, 광교호수공원" maxlength="100" required><button id="place-search-submit" type="submit" class="secondary" disabled>장소 검색</button></div>
+          <p id="place-search-status" class="help" role="status" aria-live="polite">카카오맵 연결 후 장소를 검색할 수 있습니다. 검색어는 카카오로 전송됩니다.</p>
+          <ul id="place-results" class="place-results" aria-label="장소 검색 결과" hidden></ul>
+          <div id="place-pagination" class="place-pagination" hidden><button id="place-prev" type="button" class="secondary" disabled>이전 결과</button><span id="place-page"></span><button id="place-next" type="button" class="secondary" disabled>다음 결과</button></div>
+          <p id="location-name" class="help">기준 위치: 서울숲</p>
+        </form>
+        <div class="location-bar"><label class="sr-only" for="preset">테스트 위치</label><select id="preset"><option value="forest">서울숲</option><option value="olympic">올림픽공원</option><option value="yeouido">여의도공원</option><option value="custom">직접 지정</option></select><button id="locate" class="quiet">현재 위치</button><button id="pick-location" class="quiet" disabled>지도에서 위치 선택</button></div>
+        <div class="coordinate-row"><label>위도<input id="lat" type="number" value="37.5445" step="0.0001" min="32" max="39"></label><label>경도<input id="lng" type="number" value="127.0374" step="0.0001" min="124" max="132"></label><label>데이터 범위<select id="radius"><option value="1500">주변 1.5km</option><option value="2500" selected>주변 2.5km</option><option value="4000">주변 4km</option></select></label><button id="load-roads" class="secondary">OSM 도로 불러오기</button></div>
+        <p id="map-status" class="help map-status" role="status" aria-live="polite">카카오맵 자동 연결을 확인하는 중…</p>
+        <div class="map-wrap"><div id="map" aria-label="카카오맵 경로 지도"></div><canvas id="schematic" aria-label="보행 도로와 경로 도식. 실제 배경 지도 아님."></canvas><div id="map-empty"><div class="map-symbol">⌖</div><h3>카카오맵 자동 연결</h3><p>프로젝트의 .env에 저장된 JavaScript 키로 연결합니다.<br>키를 설정하거나 변경한 뒤 페이지를 새로고침하세요.</p><small>키 없이도 도로 데이터와 경로 도식 테스트가 가능합니다.</small></div><div id="map-label" hidden>배경 지도 없음 · 도로 도식</div><span class="map-legend"><i class="legend-route"></i> 러닝 경로 <i class="legend-ref"></i> 원본 선 <i class="legend-adjusted"></i> 조정 기준선 <i class="legend-approach"></i> 이동 구간</span></div>
+        <div class="data-strip"><span id="data-status">도로 데이터 미설정</span><div class="reference-toggles"><label class="check"><input id="show-reference" type="checkbox" checked> 원본 선 겹쳐보기</label><label class="check"><input id="show-adjusted" type="checkbox" checked> 조정 기준선 보기</label></div></div>
+        <details class="advanced"><summary>데이터 서버 · 오프라인 테스트 · 파일 가져오기</summary><label class="provider-label">OSM 도로 데이터<select id="provider"><option value="local">내 PC · 대한민국 OSM (Geofabrik)</option></select></label><p>가상 도로는 실제 도로가 아닙니다. 실제 러닝에 사용하지 마세요.</p><div class="inline"><button id="demo" class="secondary">가상 도로 실험</button><label class="file-button">Overpass JSON 가져오기<input id="osm-file" type="file" accept=".json,application/json"></label></div><p>도로와 그림은 이 PC에서 처리합니다. 도로: © OpenStreetMap contributors (ODbL), 대한민국 추출본: Geofabrik.</p></details>
+      </section>
+    </div>
+    <section id="feedback" class="feedback" role="status" aria-live="polite">선을 그리고, 테스트 위치의 OSM 도로를 불러온 뒤 경로를 생성하세요.</section>
+    <section id="results" class="results" hidden>
+      <div class="result-heading"><div><p class="eyebrow">03 / COMPARE</p><h2>원본과 얼마나 가까울까요?</h2></div><button id="export" class="secondary">실험 JSON 저장</button></div>
+      <div class="location-exploration"><p id="location-view" class="help"></p><button id="back-locations" class="secondary" hidden>위치별 대표 경로로 돌아가기</button><button id="explore-location" class="primary">선택한 위치 주변 경로 더 찾기</button></div>
+      <div class="candidate-controls"><p id="candidate-count" role="status"></p><label>보기<select id="candidate-filter"><option value="all">전체 · 비교용 포함</option><option value="recommended">모양 조건 충족만</option><option value="comparison">비교용만</option></select></label><label>정렬<select id="candidate-sort"><option value="quality">종합 모양 평가</option><option value="mean">평균 모양 오차</option><option value="approach">출발점 접근 거리</option><option value="distance">목표 거리와의 차이</option></select></label></div>
+      <div class="result-grid"><div><div id="candidates" class="candidates"></div><p id="search-info" class="help"></p></div><div class="comparison"><div class="comparison-nav"><button id="candidate-prev" class="secondary">이전 후보</button><span id="selected-candidate" aria-live="polite"></span><button id="candidate-next" class="secondary">다음 후보</button></div>
+        <div class="candidate-map-wrap"><div id="candidate-map" aria-label="선택한 후보의 카카오맵 경로 지도"></div><canvas id="candidate-schematic" aria-label="선택한 후보의 도로 도식. 실제 배경 지도 아님." hidden></canvas><div id="candidate-map-empty">후보를 선택하면 해당 경로를 지도에서 볼 수 있습니다.</div><span id="candidate-map-label" hidden></span></div>
+        <p id="candidate-map-status" role="status" aria-live="polite"></p>
+        <p><span class="legend-route-text">러닝 경로</span> <span class="legend-ref-text">원본 선</span> <span class="legend-adjusted-text">조정 기준선</span> · 이동 구간은 파란 점선</p>
+        <details id="shape-comparison" class="shape-comparison"><summary>원본 선 도식 비교 펼치기</summary><canvas id="comparison" width="640" height="400" aria-label="원본과 조정 기준선 및 생성 경로 겹쳐보기"></canvas><p>원본·조정 기준선은 비교용입니다. 실제 이동 경로는 초록색 도로 경로입니다.</p></details>
+        <button id="show-selected-map" class="secondary">상단의 큰 지도에서 보기 ↑</button>
+      </div></div>
+    </section>
+    <footer><span>DrawRun / 실험용 · 실제 달리기 전 통행 가능성과 횡단 안전을 확인하세요.</span><span>도로 데이터 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors · ODbL</a></span></footer>
+  </main>
+</body>
+</html>
