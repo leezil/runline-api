@@ -1,0 +1,2 @@
+# Optional batch geocoding dependency; the API server remains standard-library only.
+pyproj>=3.6,<4

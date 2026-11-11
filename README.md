@@ -30,7 +30,7 @@ ngrok http 127.0.0.1:8083
 
 [API 상세 명세 및 요청 예시](docs/route-api/README.md)를 참고하세요. 현재 테스트용 서버이며 동시 계산과 요청량에 제한이 있습니다.
 
-공중화장실·방범카메라 기능은 [시설 데이터 연동 명세](docs/facilities/DATA_SPEC.md)에 출처, 원본 필드, 좌표 처리와 후속 작업을 정리했습니다. [시설 저장소](docs/facilities/STORAGE.md)와 [화장실 수집기·인증키 설정 안내](docs/facilities/TOILET_IMPORT.md)를 사용할 수 있습니다. 수집기는 가상 응답 테스트와 실제 수원시 588건 수집·저장을 검증했습니다(2026-11-12). 주소 좌표 변환과 시설 조회 HTTP API는 아직 구현되지 않았습니다.
+공중화장실·방범카메라 기능은 [시설 데이터 연동 명세](docs/facilities/DATA_SPEC.md)에 출처, 원본 필드, 좌표 처리와 후속 작업을 정리했습니다. [시설 저장소](docs/facilities/STORAGE.md), [화장실 수집기](docs/facilities/TOILET_IMPORT.md), [주소 좌표 변환기·승인키 설정](docs/facilities/TOILET_GEOCODING.md)을 참고하세요. 로컬 DB에는 수원 588건·안양 258건을 수집했습니다(2026-11-12). 좌표 변환기는 가상 응답과 로컬 실행 계획을 검증했으며, 별도 승인키와 저장 조건 확인 후 실제 변환을 활성화합니다. 시설 조회 HTTP API는 아직 구현되지 않았습니다.
 
 Windows 일괄 실행은 `start-route-api.cmd`를 사용합니다. 이 실행기는 사용자 로컬의 Python 3.13과 `.cache/ngrok/ngrok.exe`를 사용하므로 해당 경로에 먼저 설치해야 합니다. 창을 닫으면 실행기가 시작한 서버와 터널이 종료됩니다.
 

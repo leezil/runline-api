@@ -273,6 +273,56 @@ class FacilityStore:
             row = db.execute('SELECT * FROM facilities WHERE id=?', (facility_id,)).fetchone()
             return self._decode(row) if row else None
 
+    def geocoding_candidates(self, region_code, *, limit=50, retry=False):
+        """Bounded snapshot; valid/source coordinates and inactive rows are excluded."""
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError('limit must be between 1 and 1000')
+        statuses = ('pending', 'failed', 'invalid', 'ambiguous') if retry else ('pending',)
+        with self._connect(readonly=True) as db:
+            rows = db.execute(f"""SELECT * FROM facilities
+                WHERE kind='toilet' AND active=1 AND source_region_code=?
+                  AND coordinate_source IN ('none','geocoder')
+                  AND coordinate_status IN ({','.join('?' for _ in statuses)})
+                ORDER BY id LIMIT ?""", (region_code, *statuses, limit))
+            return [self._decode(row) for row in rows]
+
+    def save_geocoding(self, snapshot, *, status, longitude=None, latitude=None,
+                      provider, timestamp):
+        """Update only coordinate fields if the snapshot is still current.
+
+        A concurrent import/address edit, deactivation or another geocoder wins.
+        Network calls must happen outside this short write transaction.
+        """
+        if status not in {'valid', 'failed', 'invalid', 'ambiguous'}:
+            raise ValueError('Unsupported geocoding result')
+        if status != 'valid' and (longitude is not None or latitude is not None):
+            raise ValueError('Unresolved result cannot contain coordinates')
+        keys = ('longitude', 'latitude', 'coordinate_source', 'coordinate_status',
+                'geocoder_provider', 'geocoded_at', 'geocode_address_hash')
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM facilities WHERE id=?', (snapshot['id'],)).fetchone()
+            if row is None:
+                return False
+            current = self._decode(row)
+            if (current != snapshot or not current['active'] or current['kind'] != 'toilet'
+                    or current['coordinate_status'] == 'valid'
+                    or current['coordinate_source'] == 'source'):
+                return False
+            values = {key: value for key, value in current.items() if key != 'id'}
+            values['details'] = ToiletDetails(**values['details'])
+            has_address = bool(current['address_road'] or current['address_lot'])
+            values.update(longitude=longitude, latitude=latitude, coordinate_status=status,
+                          coordinate_source='geocoder' if has_address else 'none',
+                          geocoder_provider=provider if has_address else None,
+                          geocoded_at=timestamp if has_address else None,
+                          geocode_address_hash=address_hash(current['address_road'], current['address_lot'])
+                          if has_address else None)
+            data = _normalize(Facility(**values))
+            db.execute(f"UPDATE facilities SET {','.join(key+'=?' for key in keys)} WHERE id=?",
+                       (*[data[key] for key in keys], current['id']))
+            return True
+
     def query_bounds(self, west, south, east, north, *, kinds=('toilet', 'cctv'), limit=200):
         """Return active map-ready records; this is not the future HTTP response.
 
