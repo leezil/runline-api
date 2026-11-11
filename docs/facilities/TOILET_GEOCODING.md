@@ -1,0 +1,77 @@
+# 화장실 주소 좌표 변환
+
+구현일: 2026-11-12. 브랜치: `feat/toilet-geocoding`.
+
+## 저장 방식과 현재 상태
+
+좌표는 기존 `.cache/facilities/facilities.sqlite3`의 시설 행에 저장한다. SQLite는 PC에 있는 파일이며 서버를 재시작해도 유지된다. `.env`, DB 및 실행 로그는 Git에서 제외된다. 별도 좌표 CSV/JSON 원장은 만들지 않는다. Git은 DB 백업 수단이 아니므로 필요하면 서버/배치가 멈춘 상태에서 별도 백업한다. 서버 배포 시에는 DB를 이전하거나 그곳에서 재수집해야 한다.
+
+수원 588건, 안양 258건의 **외부 호출 없는 실행 계획만 검증**했다. 실제 좌표 변환은 아직 실행하지 않았다. 별도 승인키가 없으며 장기 저장 조건도 미확정이다. 가상 응답 테스트의 성공을 실제 API 인증 성공으로 간주하지 않는다. 군포는 이번 대상에서 제외한다.
+
+## 제공자와 활성화 조건
+
+Juso(주소기반산업지원서비스) 어댑터를 구현했다.
+
+- [주소 검색 API](https://business.juso.go.kr/jst/jstRoadNmAddrApiSearch)에서 주소의 건물 식별 필드를 조회한다. 엔드포인트는 `https://business.juso.go.kr/addrlink/addrLinkApi.do`다.
+- [좌표 검색 API](https://business.juso.go.kr/jst/jstCoordApiSearch)에서 그 식별 필드로 출입구 좌표를 조회한다. 엔드포인트는 `https://business.juso.go.kr/addrlink/addrCoordApi.do`다. 검색용 승인키와 별도 키가 필요하다.
+- HTTPS POST로 호출하고 JSON을 받는다. 키를 본문에 한 번 인코딩하며 리다이렉트는 따라가지 않는다.
+- `entX`, `entY`를 EPSG:5179 입력으로 처리하고 pyproj의 `always_xy=True`로 EPSG:4326의 **경도, 위도**로 변환한다. 실제 인증 후 예제·지도 위치를 대조하는 소량 검증이 추가로 필요하다.
+
+**API 문서만으로 장기 저장·앱 재제공 허용을 확정하지 않았다.** 기존 DATA_SPEC의 제공자 확인 후 활성화 방침을 유지한다. 신청 용도에 아래 내용을 적고, 이용조건 또는 제공기관 답변을 확인한다.
+
+> 공공 화장실 주소를 출입구 좌표로 변환하여 로컬 SQLite에 보관하고 러닝 앱 지도에서 시설 위치로 제공합니다. 주소 변경 시 다시 변환합니다. 결과의 장기 저장·앱 API 제공 가능 여부와 필요한 출처 표시, 보존 기간, 호출 한도·비용을 확인하고자 합니다.
+
+계정별 호출 한도·비용·보존 기간·필수 출처 표시는 미확정이다. 확인된 근거를 이 문서에 기록한 후 활성화한다. `JUSO_STORAGE_APPROVED=true`는 확인 사실을 설정하는 스위치이며 그 자체가 허가는 아니다. 보존 기간에 제한이 있다면 현재 무기한 저장 설계를 먼저 수정해야 한다. PC 저장이라고 제공자 제한이 사라지지 않는다.
+
+## 키 설정과 실행
+
+1. [주소기반산업지원서비스](https://business.juso.go.kr/)의 주소정보 API 연계 신청에서 **도로명주소 검색 API(XML/JSON)**와 **좌표 검색 API**를 각각 신청한다. 팝업/JavaScript 지도 키가 아니다. 이용 용도와 실행 환경을 기재하고 승인 조건을 확인한다.
+2. 로컬 `.env`의 아래 빈칸에 발급된 값을 입력한다. 기존 `PUBLIC_DATA_SERVICE_KEY`나 카카오 키를 사용하지 않는다. 키를 커밋하거나 채팅에 공유하지 않는다.
+
+```dotenv
+JUSO_SEARCH_KEY=
+JUSO_COORD_KEY=
+JUSO_STORAGE_APPROVED=
+```
+
+환경 변수가 `.env`보다 우선한다. 저장 조건 확인 전에는 마지막 값을 비워둔다. 개발키 유효기간과 운영 전환은 승인 화면 안내를 따른다.
+
+프로젝트 루트에서 실행한다. pyproj는 좌표 변환 배치에만 필요하며 기존 API 서버는 계속 표준 라이브러리만 사용한다.
+
+```powershell
+python -m pip install -r requirements-geocoding.txt
+
+# 키 없이 대상 확인: API 호출 0회, 시설 DB 변경 없음
+python toilet_geocoding.py --region-code 3740000 --limit 1000 --dry-run
+python toilet_geocoding.py --region-code 3830000 --limit 1000 --dry-run
+
+# 승인키와 저장 조건 준비 후 5건 시범 실행
+python toilet_geocoding.py --region-code 3740000 --limit 5 --max-requests 20
+
+# 시범 결과 위치를 검토한 뒤 실행
+python toilet_geocoding.py --region-code 3740000 --limit 1000 --max-requests 2000
+python toilet_geocoding.py --region-code 3830000 --limit 1000 --max-requests 1000
+```
+
+`--database`, `--env-file`로 로컬 파일을 지정할 수 있다. 없는 DB를 자동 생성하지 않는다. 기본 `--limit 50`(최대 1000), `--max-requests 150`이다. 요청 예산은 **재시도 포함 실제 HTTP 호출 수**다. 요청 간 최소 1초, 일시 오류 최대 3회 시도를 적용한다. 이 제한은 공식 쿼터를 뜻하지 않는다. 한 시설은 보통 검색+좌표 2회, 지번 대체 시 3회가 필요하며 재시도는 추가 예산을 소모한다.
+
+## 판정과 재실행
+
+- 도로명 우선, 검색 0건일 때만 지번을 조회한다. 단일 후보라도 주소 문자열이 일치해야 한다. 공백, `경기`→`경기도`, 도로명 끝의 참고 괄호만 정규화하며 건물번호·상세주소는 임의 삭제하지 않는다.
+- 건물 식별자가 일치하는 단일 출입구만 사용한다. 다중 주소/출입구 및 주소·건물 불일치는 `ambiguous`, 주소 누락/비정상 좌표는 `invalid`, 검색 결과 없음은 `failed`로 저장한다.
+- `valid`는 주소 기반 출입구 좌표를 검증했다는 뜻이며 화장실 문 앞을 현장 확인했다는 뜻이 아니다. 공원·산책로는 주소 검색이 실패하거나 건물 출입구와 실제 위치가 떨어질 수 있다.
+- 한 건씩 좌표 필드만 트랜잭션으로 반영한다. 중단 전 저장된 결과를 유지하며 재실행은 남은 `pending`부터 진행한다. 인증 실패·응답 변경·호출 예산 소진은 실행을 중단한다.
+- 기존 유효 좌표, 비활성 시설, 다른 지역, 원본 제공 좌표는 덮어쓰지 않는다. 조회 후 원본이 변경되거나 다른 작업이 먼저 저장했다면 `stale`로 건너뛴다.
+- 제공자 `juso-entrance-v1`, UTC 시각, 두 주소의 해시를 저장한다. 재수집에서 주소가 같으면 결과를 유지하고 변경되면 초기화한다.
+- 실행 내 동일 주소 쌍의 결과를 재사용한다. 별도 영구 캐시는 없으며 재실행에서는 확정된 시설을 건너뛴다.
+- `--retry`는 `failed`, `invalid`, `ambiguous`도 다시 시도한다. 원인을 검토한 뒤 사용한다. `valid`는 이 옵션으로도 재변환하지 않는다.
+
+요약 로그는 `.cache/facilities/geocoding-runs/*.json`에 저장한다. 건수·고정 사유만 기록하고 키, 요청 본문, 원본 응답, 제공자 오류 메시지는 남기지 않는다. `status=success`는 배치 정상 종료이지 전부 좌표를 얻었다는 뜻이 아니다. `outcomes`, `reasons`, `stale`을 함께 확인한다.
+
+준비 오류는 `MISSING_JUSO_KEYS`, `STORAGE_PERMISSION_UNCONFIRMED`, `MISSING_PYPROJ`로 구분한다. `REQUEST_BUDGET_EXHAUSTED`이면 완료 건수를 확인하고 남은 대상을 재실행한다.
+
+## 검증
+
+`python -m unittest discover -s tests -p test_toilet_geocoding.py -v`
+
+가상 응답으로 매칭, 모호한 후보 배제, 결측·비정상 좌표, 지번 대체, 재시도·예산, 키 비노출, 재개, 동시 변경 보호, 주소 변경 무효화를 검증한다. pyproj 설치 시 투영 원점 `(1000000, 2000000)` → `(127.5, 38)` 및 축 순서를 검증한다. 미설치 환경에서는 좌표계 테스트만 skip한다.
