@@ -11,6 +11,7 @@ local-config.json
 ngrok.yml
 ngrok.yaml
 # Local data, logs and generated artifacts
+# Includes the PC-local facility DB and import logs under .cache/facilities/.
 .cache/
 artifacts/
 __pycache__/
@@ -19,6 +20,7 @@ __pycache__/
 *.pid
 *.sqlite*
 *.db
+*.db-*
 *.osm
 *.pbf
 .venv/
