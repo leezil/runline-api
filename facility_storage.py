@@ -224,10 +224,11 @@ class FacilityStore:
                 db.rollback()
                 raise
 
-    def upsert_many(self, records):
+    def upsert_many(self, records, *, preserve_local_state=False):
         """Replace full records by source identity; omitted fields use model defaults.
 
         No missing-record deletion, source-code interpretation or geocoding occurs.
+        Importers can preserve active state and coordinates for unchanged addresses.
         Returns stable IDs in input order. Validation failures roll back the batch.
         """
         ids = []
@@ -237,8 +238,21 @@ class FacilityStore:
                f"VALUES({','.join('?' for _ in range(len(columns)+1))}) "
                f"ON CONFLICT(source,source_region_code,source_record_id) DO UPDATE SET {updates}")
         with self._connect() as db:
+            # Include the local-state read in the same write transaction.
+            db.execute('BEGIN IMMEDIATE')
             for record in records:
                 data = _normalize(record)
+                if preserve_local_state:
+                    old = db.execute('SELECT * FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
+                                     [data[key] for key in ('source', 'source_region_code', 'source_record_id')]).fetchone()
+                    if old:
+                        data['active'] = old['active']
+                        if (data['coordinate_source'] == 'none' and data['coordinate_status'] == 'pending'
+                                and data['address_road'] == old['address_road']
+                                and data['address_lot'] == old['address_lot']):
+                            for key in ('longitude', 'latitude', 'coordinate_source', 'coordinate_status',
+                                        'geocoder_provider', 'geocoded_at', 'geocode_address_hash'):
+                                data[key] = old[key]
                 db.execute(sql, [uuid.uuid4().hex] + [data[key] for key in columns])
                 row = db.execute('SELECT id FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
                                  [data[key] for key in ('source', 'source_region_code', 'source_record_id')]).fetchone()
