@@ -132,7 +132,8 @@ def import_cctv(store, service_key, region_code, *, page_size=100, max_pages=100
             store.initialize()
             # Preserve manual deactivation. Invalid incoming coordinates are not
             # pending, so the store cannot retain stale coordinates from a prior run.
-            store.upsert_many(records, preserve_local_state=True)
+            store.upsert_many(records, preserve_local_state=True,
+                              import_state=('mois_cctv', region_code, utc_now()))
             report['saved'] = len(records)
         report['status'] = 'validated' if dry_run else 'success'
         return report
@@ -144,6 +145,11 @@ def import_cctv(store, service_key, region_code, *, page_size=100, max_pages=100
         raise ImportFailure('STORAGE_ERROR') from None
     finally:
         report['finished_at'] = utc_now()
+        if not dry_run and report['status'] == 'failed':
+            try:
+                store.record_import_failure('mois_cctv', region_code, report['finished_at'])
+            except (OSError, ValueError, sqlite3.Error):
+                report['import_state_error'] = True
 
 
 def main(argv=None):

@@ -108,10 +108,14 @@ class CctvImportTests(unittest.TestCase):
 
     def test_failed_later_page_does_not_modify_existing_database(self):
         self.run_import([page([row()])])
-        before = self.path.read_bytes()
+        before = self.mapped()
         with self.assertRaises(cctv.ImportFailure):
             self.run_import([page([row(WGS84_LAT='0'), row('two')], total=3), cctv.ImportFailure('NETWORK_ERROR')])
-        self.assertEqual(before, self.path.read_bytes())
+        self.assertEqual(before, self.mapped())
+        status = self.store.query_bounds(126, 36, 128, 38, kinds=('cctv',),
+                                         include_import_status=True)['import_status']['cctv']
+        self.assertTrue(status['last_import_failed'])
+        self.assertIsNotNone(status['data_updated_at'])
 
     def test_duplicate_region_missing_fields_total_change_and_budget_abort(self):
         missing = row(); del missing['MNG_NO']

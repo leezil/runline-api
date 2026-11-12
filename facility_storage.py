@@ -15,6 +15,13 @@ SOURCES = {'toilet': 'mois_toilet_v2', 'cctv': 'mois_cctv'}
 STATUSES = {'valid', 'pending', 'ambiguous', 'invalid', 'failed'}
 APPLICATION_ID = 1381322310
 
+# Optional additive metadata: old v1 readers remain compatible. API reads never
+# create/migrate databases; importers create this table on their next write.
+_IMPORT_SCHEMA = '''CREATE TABLE IF NOT EXISTS facility_import_state (
+    source TEXT NOT NULL, region_code TEXT NOT NULL,
+    last_success_at TEXT, last_attempt_at TEXT NOT NULL,
+    last_attempt_status TEXT NOT NULL, PRIMARY KEY(source, region_code))'''
+
 
 @dataclass
 class ToiletDetails:
@@ -224,7 +231,7 @@ class FacilityStore:
                 db.rollback()
                 raise
 
-    def upsert_many(self, records, *, preserve_local_state=False):
+    def upsert_many(self, records, *, preserve_local_state=False, import_state=None):
         """Replace full records by source identity; omitted fields use model defaults.
 
         No missing-record deletion, source-code interpretation or geocoding occurs.
@@ -257,7 +264,59 @@ class FacilityStore:
                 row = db.execute('SELECT id FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
                                  [data[key] for key in ('source', 'source_region_code', 'source_record_id')]).fetchone()
                 ids.append(row['id'])
+            if import_state is not None:
+                source, region, timestamp = import_state
+                self._write_import_state(db, source, region, timestamp, 'success')
         return ids
+
+    @staticmethod
+    def _write_import_state(db, source, region, timestamp, status):
+        if source not in SOURCES.values() or not isinstance(region, str) or not region:
+            raise ValueError('Invalid import identity')
+        _utc_timestamp(timestamp, 'import timestamp')
+        db.execute(_IMPORT_SCHEMA)
+        db.execute('''INSERT INTO facility_import_state VALUES(?,?,?,?,?)
+            ON CONFLICT(source,region_code) DO UPDATE SET
+            last_success_at=CASE WHEN excluded.last_attempt_status='success'
+                THEN excluded.last_success_at ELSE facility_import_state.last_success_at END,
+            last_attempt_at=excluded.last_attempt_at,last_attempt_status=excluded.last_attempt_status''',
+            (source, region, timestamp if status == 'success' else None, timestamp, status))
+
+    def record_import_failure(self, source, region, timestamp):
+        """Do not create a missing DB just to log a failed initial import."""
+        if not self.path.is_file():
+            return
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._write_import_state(db, source, region, timestamp, 'failed')
+
+    @staticmethod
+    def _import_status(db, kinds):
+        has_state = db.execute("SELECT 1 FROM sqlite_master WHERE name='facility_import_state' AND type='table'").fetchone()
+        result = {}
+        for kind in kinds:
+            source = SOURCES[kind]
+            regions = {row['source_region_code']: {
+                'region_code': row['source_region_code'], 'last_fetched_at': row['fetched'],
+                'last_success_at': None, 'last_attempt_at': None,
+                'last_attempt_status': 'unknown', 'ready': True}
+                for row in db.execute('''SELECT source_region_code,MAX(fetched_at) AS fetched
+                    FROM facilities WHERE source=? GROUP BY source_region_code''', (source,))}
+            if has_state:
+                for row in db.execute('SELECT * FROM facility_import_state WHERE source=?', (source,)):
+                    region = regions.setdefault(row['region_code'], {
+                        'region_code': row['region_code'], 'last_fetched_at': None, 'ready': False})
+                    region.update(last_success_at=row['last_success_at'], last_attempt_at=row['last_attempt_at'],
+                                  last_attempt_status=row['last_attempt_status'])
+                    region['ready'] = region['ready'] or row['last_success_at'] is not None
+            values = [regions[key] for key in sorted(regions)]
+            ready = any(row['ready'] for row in values)
+            # Conservative watermark across all known regions; old data is honest unknown.
+            times = [row['last_success_at'] for row in values]
+            result[kind] = {'source': source, 'ready': ready, 'regions': values,
+                            'data_updated_at': min(times) if times and all(times) else None,
+                            'last_import_failed': any(row['last_attempt_status'] == 'failed' for row in values)}
+        return result
 
     @staticmethod
     def _decode(row):
@@ -323,7 +382,8 @@ class FacilityStore:
                        (*[data[key] for key in keys], current['id']))
             return True
 
-    def query_bounds(self, west, south, east, north, *, kinds=('toilet', 'cctv'), limit=200):
+    def query_bounds(self, west, south, east, north, *, kinds=('toilet', 'cctv'), limit=200,
+                     include_import_status=False):
         """Return active map-ready records; this is not the future HTTP response.
 
         R-tree gives candidates; exact REAL comparisons remove float32 expansion.
@@ -342,6 +402,7 @@ class FacilityStore:
         if type(limit) is not int or not 1 <= limit <= 500:
             raise ValueError('limit must be an integer between 1 and 500')
         with self._connect(readonly=True) as db:
+            db.execute('BEGIN')
             # Purpose stays in the normalized detail model, without relying on JSON1.
             rows = db.execute(f"""
                 SELECT f.* FROM facility_bounds b JOIN facilities f ON f.row_id=b.row_id
@@ -359,4 +420,7 @@ class FacilityStore:
                 items.append(item)
                 if len(items) > limit:
                     break
-        return {'items': items[:limit], 'count': min(len(items), limit), 'truncated': len(items) > limit}
+            result = {'items': items[:limit], 'count': min(len(items), limit), 'truncated': len(items) > limit}
+            if include_import_status:
+                result['import_status'] = self._import_status(db, kinds)
+            return result
