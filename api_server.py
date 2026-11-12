@@ -20,6 +20,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from routing import (InputError, demo_graph, finite_number, generate,
                      graph_from_osm, prepare_drawing, valid_center)
 from local_osm import read_roads as get_osm
+from facility_storage import DATABASE, FacilityStore
+from places_api import PlacesError, validate_query, query_places
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "api_web"
@@ -120,11 +122,13 @@ def validate_request(body):
 
 
 class RouteService:
-    def __init__(self, token=None):
+    def __init__(self, token=None, facility_database=DATABASE):
         self.token = token or secrets.token_urlsafe(32)
         self.compute = threading.Semaphore(1)
         self.lock = threading.Lock()
         self.calls = deque()
+        self.place_calls = deque()
+        self.facility_store = FacilityStore(facility_database)
         self.graphs = OrderedDict()
         self.request_logs = deque(maxlen=200)
         self.log_lock = threading.Lock()
@@ -142,6 +146,17 @@ class RouteService:
             if len(self.calls) >= 12:
                 return False
             self.calls.append(now)
+            return True
+
+    def take_places_slot(self):
+        # Shared across listeners, separate from expensive route generation.
+        now = time.monotonic()
+        with self.lock:
+            while self.place_calls and self.place_calls[0] <= now - 60:
+                self.place_calls.popleft()
+            if len(self.place_calls) >= 120:
+                return False
+            self.place_calls.append(now)
             return True
 
     def roads(self, location, source, radius, provider):
@@ -185,13 +200,13 @@ class ApiHandler(BaseHTTPRequestHandler):
         valid = super().parse_request()
         if valid:
             path = urllib.parse.urlsplit(self.path).path
-            if self.server.api_only or path == "/v1/routes":
+            if self.server.api_only or path in {"/v1/routes", "/v1/places"}:
                 self._log_started = time.monotonic()
                 self._request_log = {
                     "id": secrets.token_hex(8), "time": time.time(),
                     "channel": "external" if self.server.api_only else "local",
                     "method": self.command if self.command in {"GET", "POST", "OPTIONS", "PUT", "DELETE", "HEAD", "PATCH"} else "OTHER",
-                    "path": path if path in {"/v1/routes", "/v1/health"} else "(other path)",
+                    "path": path if path in {"/v1/routes", "/v1/health", "/v1/places"} else "(other path)",
                     "stage": "received", "status": None, "elapsed_s": None,
                 }
                 with self.server.service.log_lock:
@@ -291,6 +306,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not self.local_request():
             return
         path = urllib.parse.urlsplit(self.path).path
+        if path == "/v1/places":
+            authorization = self.headers.get("Authorization", "")
+            expected = f"Bearer {self.server.service.token}"
+            if (len(self.headers.get_all('Authorization', [])) != 1 or
+                    not hmac.compare_digest(authorization.encode('utf-8'), expected.encode('utf-8'))):
+                return self.error('UNAUTHORIZED', '올바른 테스트용 Bearer 토큰이 필요합니다.', 401)
+            try:
+                validated = validate_query(urllib.parse.urlsplit(self.path).query)
+                if not self.server.service.take_places_slot():
+                    return self.error('RATE_LIMITED', '시설 조회는 두 포트를 합쳐 분당 최대 120회입니다.',
+                                      429, {'Retry-After': '60'})
+                return self.reply(query_places(self.server.service.facility_store, validated))
+            except PlacesError as error:
+                return self.error(error.code, error.message, error.status)
         if path == "/v1/health":
             health = {"ok": True, "version": "v1", "local_only": not self.server.api_only}
             if not self.server.api_only:
@@ -298,7 +327,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 health["tunnel_port"] = self.server.tunnel_port
             return self.reply(health)
         if self.server.api_only:
-            return self.error("NOT_FOUND", "API 전용 포트에서는 상태 확인과 경로 생성만 제공합니다.", 404)
+            return self.error("NOT_FOUND", "존재하지 않는 API입니다.", 404)
         if path == "/local/bootstrap":
             # Available ONLY on the private playground listener. Tunnel mode
             # uses a persisted test token; default local mode is ephemeral.
@@ -320,7 +349,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not self.server.api_only or self.headers.get("Origin") not in CORS_ORIGINS:
             return self.error("ORIGIN_DENIED", "허용된 웹 출처가 필요합니다.", 403)
         path = urllib.parse.urlsplit(self.path).path
-        method = {"/v1/routes": "POST", "/v1/health": "GET"}.get(path)
+        method = {"/v1/routes": "POST", "/v1/health": "GET", "/v1/places": "GET"}.get(path)
         if method is None:
             return self.error("NOT_FOUND", "존재하지 않는 API입니다.", 404)
         requested = {item.strip().lower() for item in
@@ -391,13 +420,16 @@ def main():
     parser.add_argument("--port", type=int, default=8082)
     parser.add_argument("--enable-tunnel", action="store_true", help="Enable API-only loopback listener (does NOT run ngrok)")
     parser.add_argument("--tunnel-port", type=int, default=8083)
+    parser.add_argument("--facility-database", type=Path, default=DATABASE,
+                        help="Read-only facility SQLite path; never created by the API")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or not 1 <= args.tunnel_port <= 65535:
         parser.error("포트는 1~65535여야 합니다.")
     if args.enable_tunnel and args.port == args.tunnel_port:
         parser.error("테스트 화면과 API 전용 포트는 달라야 합니다.")
     try:
-        service = RouteService(load_tunnel_token() if args.enable_tunnel else None)
+        service = RouteService(load_tunnel_token() if args.enable_tunnel else None,
+                               facility_database=args.facility_database)
     except (InputError, OSError, UnicodeError) as error:
         parser.error(str(error) if isinstance(error, InputError) else "API 토큰 파일을 읽거나 만들지 못했습니다.")
     with ExitStack() as stack:

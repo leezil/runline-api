@@ -25,12 +25,13 @@ ngrok http 127.0.0.1:8083
 
 - `GET /v1/health`: 상태 확인
 - `POST /v1/routes`: 그림과 기준 위치로 경로 생성
+- `GET /v1/places`: 지도 범위 내 화장실·방범 CCTV 조회 ([요청·응답 안내](docs/facilities/PLACES_API.md))
 - 외부 요청 인증: `Authorization: Bearer <API_TOKEN>`
 - 토큰은 `DRAWRUN_API_TOKEN` 환경 변수 또는 로컬 `.api-token` 파일로 관리합니다. 환경 변수와 파일이 없으면 터널 기능을 켤 때 새 토큰을 생성합니다.
 
 [API 상세 명세 및 요청 예시](docs/route-api/README.md)를 참고하세요. 현재 테스트용 서버이며 동시 계산과 요청량에 제한이 있습니다.
 
-공중화장실·방범카메라 기능은 [시설 데이터 연동 명세](docs/facilities/DATA_SPEC.md)에 출처, 원본 필드, 좌표 처리와 후속 작업을 정리했습니다. [시설 저장소](docs/facilities/STORAGE.md), [화장실 수집기](docs/facilities/TOILET_IMPORT.md), [주소 좌표 변환기·승인키 설정](docs/facilities/TOILET_GEOCODING.md)을 참고하세요. 로컬 DB에는 수원 588건·안양 258건을 수집했습니다(2026-11-12). 좌표 변환기는 가상 응답과 로컬 실행 계획을 검증했으며, 별도 승인키와 저장 조건 확인 후 실제 변환을 활성화합니다. 시설 조회 HTTP API는 아직 구현되지 않았습니다.
+공중화장실·방범카메라 기능은 [시설 데이터 연동 명세](docs/facilities/DATA_SPEC.md)에 출처, 원본 필드, 좌표 처리와 후속 작업을 정리했습니다. [시설 저장소](docs/facilities/STORAGE.md), [화장실 수집기](docs/facilities/TOILET_IMPORT.md), [주소 좌표 변환기·승인키 설정](docs/facilities/TOILET_GEOCODING.md)을 참고하세요. 로컬 DB에는 수원 588건·안양 258건을 수집했습니다(2026-11-12). 좌표 변환기는 가상 응답과 로컬 실행 계획을 검증했으며, 별도 승인키와 저장 조건 확인 후 실제 변환을 활성화합니다. 시설 조회는 `GET /v1/places`로 제공하며, 자세한 요청·응답과 수집 상태 의미는 시설 API 안내를 참고하세요.
 
 Windows 일괄 실행은 `start-route-api.cmd`를 사용합니다. 이 실행기는 사용자 로컬의 Python 3.13과 `.cache/ngrok/ngrok.exe`를 사용하므로 해당 경로에 먼저 설치해야 합니다. 창을 닫으면 실행기가 시작한 서버와 터널이 종료됩니다.
 

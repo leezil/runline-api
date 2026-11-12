@@ -208,7 +208,8 @@ def import_toilets(store, service_key, region_code, *, page_size=100, max_pages=
             raise ImportFailure('INCOMPLETE_LISTING')
         if not dry_run:
             store.initialize()
-            store.upsert_many(records, preserve_local_state=True)
+            store.upsert_many(records, preserve_local_state=True,
+                              import_state=('mois_toilet_v2', region_code, utc_now()))
             report['saved'] = len(records)
         report['status'] = 'validated' if dry_run else 'success'
         return report
@@ -220,6 +221,11 @@ def import_toilets(store, service_key, region_code, *, page_size=100, max_pages=
         raise ImportFailure('STORAGE_ERROR') from None
     finally:
         report['finished_at'] = utc_now()
+        if not dry_run and report['status'] == 'failed':
+            try:
+                store.record_import_failure('mois_toilet_v2', region_code, report['finished_at'])
+            except (OSError, ValueError, sqlite3.Error):
+                report['import_state_error'] = True
 
 
 def main(argv=None):

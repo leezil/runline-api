@@ -105,3 +105,6 @@ $r | Select-Object found, source, recommended_count, message
 - 422: 입력 조건 또는 도로 조회 문제. 429: 동시 계산 1개 또는 두 포트 합산 분당 12회 제한. 재시도 전 응답의 `Retry-After`를 따른다.
 - **Flutter Web / 브라우저:** 테스트용 `http://localhost:5000` 및 `http://127.0.0.1:5000`에서 직접 호출할 수 있다. 다른 Origin은 403이다. `flutter run -d chrome --web-port 5000`으로 실행한다. Flutter Android/iOS의 네이티브 HTTP 호출과 서버 간 호출도 지원한다.
 - PC, API 서버, ngrok이 실행되는 동안 접속할 수 있다. 이 테스트에서 확인한 범위는 로컬의 터널 대상 포트이며, 외부 연결은 터널을 연 뒤 다른 기기에서 위 상태 요청으로 확인한다.
+
+
+시설 조회 API는 [시설 API 계약](../facilities/PLACES_API.md)을 참고하세요. 기존 두 포트의 Bearer 인증 정책으로 `GET /v1/places`를 호출할 수 있습니다.
