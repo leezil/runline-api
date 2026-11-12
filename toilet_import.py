@@ -57,13 +57,14 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def fetch_page(service_key, region_code, page, page_size, *, opener=None, sleep=time.sleep):
+def fetch_page(service_key, region_code, page, page_size, *, opener=None, sleep=time.sleep,
+               endpoint=ENDPOINT):
     opener = opener or urllib.request.build_opener(_NoRedirect()).open
     query = urllib.parse.urlencode({
         'serviceKey': service_key, 'pageNo': page, 'numOfRows': page_size,
         'returnType': 'json', 'cond[OPN_ATMY_GRP_CD::EQ]': region_code,
     })
-    request = urllib.request.Request(ENDPOINT + '?' + query,
+    request = urllib.request.Request(endpoint + '?' + query,
                                      headers={'Accept': 'application/json', 'User-Agent': 'runline-api/1'})
     for attempt in range(3):
         try:
