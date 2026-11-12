@@ -37,7 +37,7 @@ Windows 일괄 실행은 `start-route-api.cmd`를 사용합니다. 이 실행기
 
 CCTV 데이터는 [CCTV 수집기·API 신청 안내](docs/facilities/CCTV_IMPORT.md)를 참고하세요. 2026-11-12 수원·안양 CCTV 6,683건을 로컬 DB에 저장했습니다. 불량·미분류·지역 좌표 검토 대상을 제외한 지도 조회 대상은 4,983건입니다.
 
-시설의 반복 갱신은 [시설 갱신 안내](docs/facilities/FACILITY_REFRESH.md)를 참고하세요. 전체 목록 비교, 누락 유예, 수동 제외 유지 및 성공 체크포인트를 지원합니다. 자동 실행 등록은 아직 하지 않았습니다.
+시설의 반복 갱신은 [시설 갱신 안내](docs/facilities/FACILITY_REFRESH.md)를 참고하세요. 전체 목록 비교, 누락 유예, 수동 제외 유지 및 성공 체크포인트를 지원합니다. `refresh-facilities.cmd`로 원할 때 갱신하거나, API 서버 실행 중 매일 자정(KST)에 자동 갱신합니다. [수동·자동 갱신 설정](docs/facilities/FACILITY_REFRESH_SCHEDULE.md)에 실행 조건과 로그 확인 방법을 정리했습니다.
 
 ## 실제 도로 데이터 준비
 

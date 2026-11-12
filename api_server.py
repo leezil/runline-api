@@ -22,6 +22,7 @@ from routing import (InputError, demo_graph, finite_number, generate,
 from local_osm import read_roads as get_osm
 from facility_storage import DATABASE, FacilityStore
 from places_api import PlacesError, validate_query, query_places
+from facility_refresh_schedule import FacilityRefreshSchedule, parse_time as parse_refresh_time
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "api_web"
@@ -421,8 +422,16 @@ def main():
     parser.add_argument("--enable-tunnel", action="store_true", help="Enable API-only loopback listener (does NOT run ngrok)")
     parser.add_argument("--tunnel-port", type=int, default=8083)
     parser.add_argument("--facility-database", type=Path, default=DATABASE,
-                        help="Read-only facility SQLite path; never created by the API")
+                        help="Facility SQLite path: queries read only; scheduled refresh updates existing DB")
+    parser.add_argument('--disable-facility-refresh', action='store_true',
+                        help='Disable the daily refresh trigger while this server runs')
+    parser.add_argument('--facility-refresh-time', default='00:00',
+                        help='Daily facility refresh time in KST (HH:MM), default midnight')
     args = parser.parse_args()
+    try:
+        parse_refresh_time(args.facility_refresh_time)
+    except ValueError as error:
+        parser.error(str(error))
     if not 1 <= args.port <= 65535 or not 1 <= args.tunnel_port <= 65535:
         parser.error("포트는 1~65535여야 합니다.")
     if args.enable_tunnel and args.port == args.tunnel_port:
@@ -447,11 +456,18 @@ def main():
             print("Test token persists in .api-token unless DRAWRUN_API_TOKEN is set; never logged.", flush=True)
         else:
             print("Local-only. Test token is ephemeral; not logged or saved.", flush=True)
+        refresh_schedule = None
+        if not args.disable_facility_refresh:
+            refresh_schedule = FacilityRefreshSchedule(args.facility_database, at=args.facility_refresh_time)
+            refresh_schedule.start()
+            print(f"Facility refresh: daily {args.facility_refresh_time} KST while this server runs.", flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             pass
         finally:
+            if refresh_schedule:
+                refresh_schedule.stop()
             if tunnel:
                 tunnel.shutdown()
                 thread.join()

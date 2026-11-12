@@ -1,6 +1,6 @@
 # 시설 데이터 갱신
 
-구현일: 2026-11-12. `feat/facility-refresh`는 화장실·CCTV의 **지역별 전체 목록 비교 갱신**을 구현한다. 정기 실행 등록은 후속 `chore/facility-refresh-schedule` 작업이다.
+구현일: 2026-11-12. `feat/facility-refresh`는 화장실·CCTV의 **지역별 전체 목록 비교 갱신**을 구현한다. 이후 추가한 수동 실행 파일과 서버 실행 중 자정 자동 갱신은 [실행 설정 안내](FACILITY_REFRESH_SCHEDULE.md)를 참고한다.
 
 ## 범위와 증분 처리 결정
 
