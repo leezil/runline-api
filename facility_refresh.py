@@ -94,7 +94,7 @@ def refresh_one(store, service_key, kind, region, *, page_size=100, max_pages=10
                 report['failure_state_recorded'] = False
 
 
-def main(argv=None):
+def main(argv=None, *, job_id=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--region-code', action='append', required=True,
                         help='Repeat for each municipality; each scope commits independently')
@@ -116,10 +116,14 @@ def main(argv=None):
             or not math.isfinite(args.max_missing_ratio) or not 0 <= args.max_missing_ratio <= 1):
         parser.error('Invalid types, region codes, page limits or missing ratio')
     report = {'started_at': utc_now(), 'status': 'running', 'scopes': []}
+    if job_id is not None:
+        report['job_id'] = job_id
     log_dir = ROOT / '.cache/facilities/refresh-runs'
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
         with (log_dir / (uuid.uuid4().hex + '.json')).open('x', encoding='utf-8') as log:
+            json.dump(report, log, ensure_ascii=False, indent=2)
+            log.flush()
             try:
                 key = load_service_key(args.env_file)
                 store = FacilityStore(args.database)

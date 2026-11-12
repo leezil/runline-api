@@ -3,6 +3,7 @@ import argparse
 from contextlib import contextmanager, redirect_stdout, redirect_stderr
 from datetime import date, datetime, timezone
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -64,26 +65,84 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def run_job(*, database=DATABASE, root=ROOT, dry_run=False, scheduled_date=None, refresh_main=None):
+def database_id(database):
+    return hashlib.sha256(os.path.normcase(str(database)).encode('utf-8')).hexdigest()
+
+
+def recover_interrupted(root, state_dir, identity):
+    """Caller holds the DB lock: no cooperating refresh can still be running."""
+    recovered = 0
+    orphan_ids = set()
+    for path in (root / '.cache/facilities/job-runs').glob('*.json'):
+        try:
+            record = json.loads(path.read_text(encoding='utf-8'))
+        except (ValueError, UnicodeError):
+            continue  # Preserve unreadable evidence rather than guessing ownership.
+        if not isinstance(record, dict) or record.get('database_id') != identity:
+            continue
+        if record.get('status') not in {'running', 'interrupted', 'failed'}:
+            continue
+        orphan_ids.add(path.stem)
+        if record['status'] == 'running':
+            record.update(status='interrupted', error='PREVIOUS_JOB_INTERRUPTED',
+                          recovered_at=utc_now())
+            write_json(path, record)
+            recovered += 1
+    for path in state_dir.glob('scheduled-*.json'):
+        try:
+            record = json.loads(path.read_text(encoding='utf-8'))
+        except (ValueError, UnicodeError):
+            continue
+        if isinstance(record, dict) and record.get('status') == 'started':
+            record.update(status='interrupted', error='PREVIOUS_JOB_INTERRUPTED', recovered_at=utc_now())
+            write_json(path, record)
+            recovered += 1
+    for path in (root / '.cache/facilities/refresh-runs').glob('*.json'):
+        try:
+            record = json.loads(path.read_text(encoding='utf-8'))
+        except (ValueError, UnicodeError):
+            continue
+        if (not isinstance(record, dict) or record.get('job_id') not in orphan_ids
+                or record.get('status') != 'running'):
+            continue
+        record.update(status='interrupted', error='PREVIOUS_JOB_INTERRUPTED', recovered_at=utc_now())
+        for scope in record.get('scopes', []):
+            if isinstance(scope, dict) and scope.get('status') == 'running':
+                scope.update(status='interrupted', error='PREVIOUS_JOB_INTERRUPTED')
+        write_json(path, record)
+        recovered += 1
+    return recovered
+
+
+def run_job(*, database=DATABASE, root=ROOT, dry_run=False, scheduled_date=None, refresh_main=None,
+            recover_only=False):
     root, database = Path(root).resolve(), Path(database).resolve()
     # Lock/claims follow the DB location, so another checkout using this DB also locks.
     state_dir = database.parent / (database.name + '.refresh-job')
     log_dir = root / '.cache/facilities/job-runs'
     log_path = log_dir / (uuid.uuid4().hex + '.json')
     report = {'started_at': utc_now(), 'status': 'running',
-              'trigger': 'scheduled' if scheduled_date else 'manual', 'dry_run': dry_run}
+              'trigger': 'recovery' if recover_only else ('scheduled' if scheduled_date else 'manual'),
+              'dry_run': dry_run, 'database_id': database_id(database)}
     code = 1
+    finalized = False
     try:
         if scheduled_date is not None:
             if date.fromisoformat(scheduled_date).isoformat() != scheduled_date or dry_run:
                 raise ValueError('Invalid scheduled invocation')
+        if recover_only and (scheduled_date or dry_run):
+            raise ValueError('Invalid recovery invocation')
         # Do not create a missing database directory as an accidental side effect.
         if not database.is_file():
             report.update(status='failed', error='FACILITY_DB_MISSING')
         else:
             with job_lock(state_dir / 'run.lock'):
+                report['recovered_records'] = recover_interrupted(root, state_dir, report['database_id'])
                 claim = state_dir / ('scheduled-' + scheduled_date + '.json') if scheduled_date else None
-                if claim is not None and claim.exists():
+                if recover_only:
+                    report['status'] = 'recovered'
+                    code = 0
+                elif claim is not None and claim.exists():
                     report.update(status='skipped_already_scheduled', scheduled_date=scheduled_date)
                     code = 0
                 else:
@@ -100,16 +159,27 @@ def run_job(*, database=DATABASE, root=ROOT, dry_run=False, scheduled_date=None,
                     output = io.StringIO()
                     # Only the known structured summary is logged; unexpected stderr
                     # and exception text are discarded to avoid credential leakage.
-                    with redirect_stdout(output), redirect_stderr(io.StringIO()):
-                        code = (refresh_main or facility_refresh.main)(args)
-                    summary = json.loads(output.getvalue())
-                    if not isinstance(summary, dict) or summary.get('status') not in {'success', 'validated', 'partial', 'failed'}:
-                        raise ValueError('Invalid refresh summary')
-                    report.update(status=summary['status'], refresh_exit_code=code, refresh=summary)
-                    if code not in (0, 1):
+                    try:
+                        with redirect_stdout(output), redirect_stderr(io.StringIO()):
+                            code = (refresh_main(args) if refresh_main else
+                                    facility_refresh.main(args, job_id=log_path.stem))
+                        summary = json.loads(output.getvalue())
+                        if not isinstance(summary, dict) or summary.get('status') not in {'success', 'validated', 'partial', 'failed'}:
+                            raise ValueError('Invalid refresh summary')
+                        report.update(status=summary['status'], refresh_exit_code=code, refresh=summary)
+                        if code not in (0, 1):
+                            code = 1
+                    except (KeyboardInterrupt, SystemExit):
+                        report.update(status='interrupted', error='JOB_INTERRUPTED')
+                        code = 1
+                    except Exception:
+                        report.update(status='failed', error='JOB_EXECUTION_ERROR')
                         code = 1
                     if claim is not None:
                         write_json(claim, {'status': report['status'], 'finished_at': utc_now(), 'exit_code': code})
+                report['finished_at'] = utc_now()
+                write_json(log_path, report)
+                finalized = True  # Final state must be persisted before releasing the lock.
     except AlreadyRunning:
         report.update(status='skipped_overlap')
         code = 0
@@ -117,12 +187,13 @@ def run_job(*, database=DATABASE, root=ROOT, dry_run=False, scheduled_date=None,
         report.update(status='failed', error='JOB_EXECUTION_ERROR')
         code = 1
     finally:
-        report['finished_at'] = utc_now()
-        try:
-            write_json(log_path, report)
-        except OSError:
-            report.update(status='failed', error='JOB_LOG_WRITE_ERROR')
-            code = 1
+        if not finalized:
+            report['finished_at'] = utc_now()
+            try:
+                write_json(log_path, report)
+            except OSError:
+                report.update(status='failed', error='JOB_LOG_WRITE_ERROR')
+                code = 1
     return code, report
 
 
@@ -130,9 +201,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--database', type=Path, default=DATABASE)
     parser.add_argument('--dry-run', action='store_true')
+    parser.add_argument('--recover-only', action='store_true', help='Reconcile interrupted logs without fetching data')
     parser.add_argument('--scheduled-date', help='Internal: KST date, at most one automatic attempt per date')
     args = parser.parse_args(argv)
-    code, report = run_job(database=args.database, dry_run=args.dry_run, scheduled_date=args.scheduled_date)
+    code, report = run_job(database=args.database, dry_run=args.dry_run, scheduled_date=args.scheduled_date,
+                           recover_only=args.recover_only)
     print(json.dumps(report, ensure_ascii=False))
     return code
 
