@@ -21,7 +21,7 @@ from routing import (InputError, demo_graph, finite_number, generate,
                      graph_from_osm, prepare_drawing, valid_center)
 from local_osm import read_roads as get_osm
 from facility_storage import DATABASE, FacilityStore
-from places_api import PlacesError, validate_query, query_places
+from places_api import PlacesError, validate_query, query_places, query_facility_status
 from facility_refresh_schedule import FacilityRefreshSchedule, parse_time as parse_refresh_time
 
 ROOT = Path(__file__).resolve().parent
@@ -201,13 +201,13 @@ class ApiHandler(BaseHTTPRequestHandler):
         valid = super().parse_request()
         if valid:
             path = urllib.parse.urlsplit(self.path).path
-            if self.server.api_only or path in {"/v1/routes", "/v1/places"}:
+            if self.server.api_only or path in {"/v1/routes", "/v1/places", "/v1/places/status"}:
                 self._log_started = time.monotonic()
                 self._request_log = {
                     "id": secrets.token_hex(8), "time": time.time(),
                     "channel": "external" if self.server.api_only else "local",
                     "method": self.command if self.command in {"GET", "POST", "OPTIONS", "PUT", "DELETE", "HEAD", "PATCH"} else "OTHER",
-                    "path": path if path in {"/v1/routes", "/v1/health", "/v1/places"} else "(other path)",
+                    "path": path if path in {"/v1/routes", "/v1/health", "/v1/places", "/v1/places/status"} else "(other path)",
                     "stage": "received", "status": None, "elapsed_s": None,
                 }
                 with self.server.service.log_lock:
@@ -307,17 +307,24 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not self.local_request():
             return
         path = urllib.parse.urlsplit(self.path).path
-        if path == "/v1/places":
+        if path in {"/v1/places", "/v1/places/status"}:
             authorization = self.headers.get("Authorization", "")
             expected = f"Bearer {self.server.service.token}"
             if (len(self.headers.get_all('Authorization', [])) != 1 or
                     not hmac.compare_digest(authorization.encode('utf-8'), expected.encode('utf-8'))):
                 return self.error('UNAUTHORIZED', '올바른 테스트용 Bearer 토큰이 필요합니다.', 401)
             try:
-                validated = validate_query(urllib.parse.urlsplit(self.path).query)
+                query = urllib.parse.urlsplit(self.path).query
+                if path == '/v1/places/status':
+                    if query:
+                        raise PlacesError('INVALID_INPUT', '시설 상태 조회에는 쿼리 매개변수를 사용하지 않습니다.')
+                else:
+                    validated = validate_query(query)
                 if not self.server.service.take_places_slot():
                     return self.error('RATE_LIMITED', '시설 조회는 두 포트를 합쳐 분당 최대 120회입니다.',
                                       429, {'Retry-After': '60'})
+                if path == '/v1/places/status':
+                    return self.reply(query_facility_status(self.server.service.facility_store))
                 return self.reply(query_places(self.server.service.facility_store, validated))
             except PlacesError as error:
                 return self.error(error.code, error.message, error.status)
@@ -350,7 +357,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         if not self.server.api_only or self.headers.get("Origin") not in CORS_ORIGINS:
             return self.error("ORIGIN_DENIED", "허용된 웹 출처가 필요합니다.", 403)
         path = urllib.parse.urlsplit(self.path).path
-        method = {"/v1/routes": "POST", "/v1/health": "GET", "/v1/places": "GET"}.get(path)
+        method = {"/v1/routes": "POST", "/v1/health": "GET", "/v1/places": "GET",
+                  "/v1/places/status": "GET"}.get(path)
         if method is None:
             return self.error("NOT_FOUND", "존재하지 않는 API입니다.", 404)
         requested = {item.strip().lower() for item in

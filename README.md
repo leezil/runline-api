@@ -26,6 +26,7 @@ ngrok http 127.0.0.1:8083
 - `GET /v1/health`: 상태 확인
 - `POST /v1/routes`: 그림과 기준 위치로 경로 생성
 - `GET /v1/places`: 지도 범위 내 화장실·방범 CCTV 조회 ([요청·응답 안내](docs/facilities/PLACES_API.md))
+- `GET /v1/places/status`: 지역·시설별 갱신 상태, 저장·지도 표시·좌표 처리 건수 ([상태 API 안내](docs/facilities/FACILITY_STATUS_API.md))
 - 외부 요청 인증: `Authorization: Bearer <API_TOKEN>`
 - 토큰은 `DRAWRUN_API_TOKEN` 환경 변수 또는 로컬 `.api-token` 파일로 관리합니다. 환경 변수와 파일이 없으면 터널 기능을 켤 때 새 토큰을 생성합니다.
 

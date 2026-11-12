@@ -2,6 +2,8 @@
 
 구현일: 2026-11-12. `GET /v1/places`는 로컬 시설 SQLite만 읽는다. 지도 조회 중 공공데이터나 지오코딩 API를 호출하지 않는다. 지도 마커 UI는 클라이언트의 후속 작업이다.
 
+전체 지역의 갱신 상태·저장 건수·좌표 처리 현황은 별도 [시설 상태 API](FACILITY_STATUS_API.md)의 `GET /v1/places/status`로 확인한다. 두 조회 API는 인증과 분당 요청 제한을 공유한다.
+
 ## 실행과 인증
 
 ```powershell

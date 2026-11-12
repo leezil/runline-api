@@ -454,6 +454,40 @@ class FacilityStore:
         result['details'] = json.loads(result['details'])
         return result
 
+    def facility_status(self):
+        """One read-only snapshot of import state and counts, including empty scopes."""
+        def empty_counts():
+            return {'stored': 0, 'active': 0, 'inactive': 0, 'map_ready': 0,
+                    'coordinates': {status: 0 for status in sorted(STATUSES)},
+                    'active_coordinates': {status: 0 for status in sorted(STATUSES)}}
+
+        with self._connect(readonly=True) as db:
+            db.execute('BEGIN')
+            statuses = self._import_status(db, tuple(SOURCES))
+            regions = {}
+            for kind, state in statuses.items():
+                state['counts'] = empty_counts()
+                for region in state['regions']:
+                    region['counts'] = empty_counts()
+                    regions[kind, region['region_code']] = region
+            # Do not require SQLite JSON1. Stream only fields needed for counts.
+            for row in db.execute('''SELECT kind,source_region_code,active,
+                    coordinate_status,details FROM facilities'''):
+                counts = regions[row['kind'], row['source_region_code']]['counts']
+                active = bool(row['active'])
+                coordinate = row['coordinate_status']
+                map_ready = active and coordinate == 'valid'
+                if map_ready and row['kind'] == 'cctv':
+                    map_ready = json.loads(row['details'])['crime_prevention'] is True
+                for target in (counts, statuses[row['kind']]['counts']):
+                    target['stored'] += 1
+                    target['active' if active else 'inactive'] += 1
+                    target['map_ready'] += int(map_ready)
+                    target['coordinates'][coordinate] += 1
+                    if active:
+                        target['active_coordinates'][coordinate] += 1
+            return {'sources': [{'type': kind, **state} for kind, state in statuses.items()]}
+
     def get(self, facility_id):
         """Internal lookup includes pending, invalid and inactive records."""
         with self._connect(readonly=True) as db:

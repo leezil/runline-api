@@ -68,3 +68,10 @@ def query_places(store, validated):
                 'sources': [{'type': kind, **statuses[kind]} for kind in kinds]}
     except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
         raise PlacesError('FACILITIES_UNAVAILABLE', '시설 저장소를 읽을 수 없습니다.', 503) from None
+
+
+def query_facility_status(store):
+    try:
+        return store.facility_status()
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError):
+        raise PlacesError('FACILITIES_UNAVAILABLE', '시설 저장소를 읽을 수 없습니다.', 503) from None
