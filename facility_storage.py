@@ -238,35 +238,38 @@ class FacilityStore:
         Importers can preserve active state and coordinates for unchanged addresses.
         Returns stable IDs in input order. Validation failures roll back the batch.
         """
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return self._upsert_records(db, records, preserve_local_state=preserve_local_state,
+                                        import_state=import_state)
+
+    def _upsert_records(self, db, records, *, preserve_local_state=False, import_state=None):
         ids = []
         columns = [item.name for item in fields(Facility)]
         updates = ','.join(f'{key}=excluded.{key}' for key in columns)
         sql = (f"INSERT INTO facilities(id,{','.join(columns)}) "
                f"VALUES({','.join('?' for _ in range(len(columns)+1))}) "
                f"ON CONFLICT(source,source_region_code,source_record_id) DO UPDATE SET {updates}")
-        with self._connect() as db:
-            # Include the local-state read in the same write transaction.
-            db.execute('BEGIN IMMEDIATE')
-            for record in records:
-                data = _normalize(record)
-                if preserve_local_state:
-                    old = db.execute('SELECT * FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
-                                     [data[key] for key in ('source', 'source_region_code', 'source_record_id')]).fetchone()
-                    if old:
-                        data['active'] = old['active']
-                        if (data['coordinate_source'] == 'none' and data['coordinate_status'] == 'pending'
-                                and data['address_road'] == old['address_road']
-                                and data['address_lot'] == old['address_lot']):
-                            for key in ('longitude', 'latitude', 'coordinate_source', 'coordinate_status',
-                                        'geocoder_provider', 'geocoded_at', 'geocode_address_hash'):
-                                data[key] = old[key]
-                db.execute(sql, [uuid.uuid4().hex] + [data[key] for key in columns])
-                row = db.execute('SELECT id FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
+        for record in records:
+            data = _normalize(record)
+            if preserve_local_state:
+                old = db.execute('SELECT * FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
                                  [data[key] for key in ('source', 'source_region_code', 'source_record_id')]).fetchone()
-                ids.append(row['id'])
-            if import_state is not None:
-                source, region, timestamp = import_state
-                self._write_import_state(db, source, region, timestamp, 'success')
+                if old:
+                    data['active'] = old['active']
+                    if (data['coordinate_source'] == 'none' and data['coordinate_status'] == 'pending'
+                            and data['address_road'] == old['address_road']
+                            and data['address_lot'] == old['address_lot']):
+                        for key in ('longitude', 'latitude', 'coordinate_source', 'coordinate_status',
+                                    'geocoder_provider', 'geocoded_at', 'geocode_address_hash'):
+                            data[key] = old[key]
+            db.execute(sql, [uuid.uuid4().hex] + [data[key] for key in columns])
+            row = db.execute('SELECT id FROM facilities WHERE source=? AND source_region_code=? AND source_record_id=?',
+                             [data[key] for key in ('source', 'source_region_code', 'source_record_id')]).fetchone()
+            ids.append(row['id'])
+        if import_state is not None:
+            source, region, timestamp = import_state
+            self._write_import_state(db, source, region, timestamp, 'success')
         return ids
 
     @staticmethod
@@ -282,13 +285,138 @@ class FacilityStore:
             last_attempt_at=excluded.last_attempt_at,last_attempt_status=excluded.last_attempt_status''',
             (source, region, timestamp if status == 'success' else None, timestamp, status))
 
-    def record_import_failure(self, source, region, timestamp):
+    def record_import_failure(self, source, region, timestamp, *, expected_refresh=None):
         """Do not create a missing DB just to log a failed initial import."""
         if not self.path.is_file():
             return
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
+            if expected_refresh is not None and self._refresh_snapshot(db, source, region)['fingerprint'] != expected_refresh:
+                return False
             self._write_import_state(db, source, region, timestamp, 'failed')
+            return True
+
+    @staticmethod
+    def _refresh_snapshot(db, source, region):
+        if source not in SOURCES.values() or not isinstance(region, str) or not region:
+            raise ValueError('INVALID_REFRESH_SCOPE')
+        rows = [dict(row) for row in db.execute('''SELECT * FROM facilities
+            WHERE source=? AND source_region_code=? ORDER BY id''', (source, region))]
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        state = []
+        if 'facility_import_state' in tables:
+            state = [dict(row) for row in db.execute('SELECT * FROM facility_import_state WHERE source=? AND region_code=?', (source, region))]
+        presence = {}
+        if 'facility_refresh_presence' in tables:
+            presence = {row['facility_id']: dict(row) for row in db.execute('''SELECT p.* FROM facility_refresh_presence p
+                JOIN facilities f ON f.id=p.facility_id WHERE f.source=? AND f.source_region_code=?
+                ORDER BY p.facility_id''', (source, region))}
+        checkpoint = None
+        if 'facility_refresh_state' in tables:
+            row = db.execute('SELECT * FROM facility_refresh_state WHERE source=? AND region_code=?', (source, region)).fetchone()
+            checkpoint = dict(row) if row else None
+        payload = {'rows': rows, 'import_state': state, 'presence': presence, 'checkpoint': checkpoint}
+        payload['fingerprint'] = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+        return payload
+
+    def refresh_snapshot(self, source, region):
+        """Optimistic concurrency token includes local edits, imports and checkpoints."""
+        with self._connect(readonly=True) as db:
+            db.execute('BEGIN')
+            return self._refresh_snapshot(db, source, region)
+
+    def apply_refresh(self, records, source, region, timestamp, expected_fingerprint, *,
+                      allow_empty=False, max_missing_ratio=0.2, dry_run=False):
+        """Apply a complete listing + missing evidence + checkpoint atomically.
+
+        Callers must validate all pages before calling. No source deletion code
+        is interpreted. Two observations at least 24h apart hide missing rows.
+        """
+        _utc_timestamp(timestamp, 'refresh timestamp')
+        if (type(allow_empty) is not bool or type(dry_run) is not bool
+                or isinstance(max_missing_ratio, bool) or not isinstance(max_missing_ratio, (int, float))
+                or not math.isfinite(max_missing_ratio) or not 0 <= max_missing_ratio <= 1):
+            raise ValueError('INVALID_REFRESH_OPTIONS')
+        records = list(records)
+        incoming = {}
+        for record in records:
+            normalized = _normalize(record)
+            if normalized['source'] != source or normalized['source_region_code'] != region:
+                raise ValueError('REFRESH_SCOPE_MISMATCH')
+            key = normalized['source_record_id']
+            if key in incoming:
+                raise ValueError('DUPLICATE_RECORD')
+            incoming[key] = normalized
+        now = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        with self._connect(readonly=dry_run) as db:
+            db.execute('BEGIN' if dry_run else 'BEGIN IMMEDIATE')
+            snapshot = self._refresh_snapshot(db, source, region)
+            if snapshot['fingerprint'] != expected_fingerprint:
+                raise ValueError('REFRESH_BASELINE_CHANGED')
+            checkpoint = snapshot['checkpoint']
+            if checkpoint and now < datetime.fromisoformat(checkpoint['checkpoint_at'].replace('Z', '+00:00')):
+                raise ValueError('REFRESH_CLOCK_REVERSED')
+            old = {row['source_record_id']: row for row in snapshot['rows']}
+            presence = snapshot['presence']
+            prior = {key for key, row in old.items() if presence.get(row['id'], {}).get('missing_count', 0) == 0}
+            missing = set(old) - set(incoming)
+            new_missing = prior - set(incoming)
+            if old and not incoming and not allow_empty:
+                raise ValueError('EMPTY_SNAPSHOT_BLOCKED')
+            if prior and len(new_missing) / len(prior) > max_missing_ratio:
+                raise ValueError('EXCESSIVE_MISSING_BLOCKED')
+            disabled, restored = [], []
+            evidence = {}
+            for key in missing:
+                row = old[key]
+                previous = presence.get(row['id'], {})
+                first = previous.get('first_missing_at') or timestamp
+                count = previous.get('missing_count', 0) + 1
+                auto = previous.get('auto_disabled', 0)
+                age = (now - datetime.fromisoformat(first.replace('Z', '+00:00'))).total_seconds()
+                if row['active'] and count >= 2 and age >= 86400:
+                    disabled.append(row['id'])
+                    auto = 1
+                evidence[row['id']] = (first, count, auto)
+            for key in set(incoming) & set(old):
+                row = old[key]
+                if presence.get(row['id'], {}).get('auto_disabled') and not row['active']:
+                    restored.append(row['id'])
+            generation = (snapshot['checkpoint'] or {}).get('generation', 0) + 1
+            report = {'new': len(set(incoming)-set(old)), 'refreshed': len(set(incoming)&set(old)),
+                      'missing': len(missing), 'new_missing': len(new_missing),
+                      'deactivated': len(disabled), 'reactivated': len(restored),
+                      'generation': generation, 'checkpoint_at': timestamp}
+            if dry_run:
+                return report
+            db.execute('''CREATE TABLE IF NOT EXISTS facility_refresh_presence (
+                facility_id TEXT PRIMARY KEY, first_missing_at TEXT,
+                missing_count INTEGER NOT NULL, auto_disabled INTEGER NOT NULL)''')
+            db.execute('''CREATE TABLE IF NOT EXISTS facility_refresh_state (
+                source TEXT NOT NULL, region_code TEXT NOT NULL, generation INTEGER NOT NULL,
+                checkpoint_at TEXT NOT NULL, PRIMARY KEY(source,region_code))''')
+            ids = self._upsert_records(db, records, preserve_local_state=True,
+                                       import_state=(source, region, timestamp))
+            for identity in ids:
+                db.execute('INSERT OR REPLACE INTO facility_refresh_presence VALUES(?,NULL,0,0)', (identity,))
+            for identity, values in evidence.items():
+                db.execute('INSERT OR REPLACE INTO facility_refresh_presence VALUES(?,?,?,?)', (identity, *values))
+            db.executemany('UPDATE facilities SET active=0 WHERE id=?', [(identity,) for identity in disabled])
+            db.executemany('UPDATE facilities SET active=1 WHERE id=?', [(identity,) for identity in restored])
+            db.execute('''INSERT OR REPLACE INTO facility_refresh_state VALUES(?,?,?,?)''',
+                       (source, region, generation, timestamp))
+            return report
+
+    def set_active(self, facility_id, active):
+        """Explicit local review overrides automatic absence/reappearance handling."""
+        if type(active) is not bool:
+            raise ValueError('active must be boolean')
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            changed = db.execute('UPDATE facilities SET active=? WHERE id=?', (active, facility_id)).rowcount
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='facility_refresh_presence'").fetchone():
+                db.execute('UPDATE facility_refresh_presence SET auto_disabled=0 WHERE facility_id=?', (facility_id,))
+            return bool(changed)
 
     @staticmethod
     def _import_status(db, kinds):
