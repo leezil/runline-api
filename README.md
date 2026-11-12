@@ -40,6 +40,8 @@ CCTV 데이터는 [CCTV 수집기·API 신청 안내](docs/facilities/CCTV_IMPOR
 
 시설의 반복 갱신은 [시설 갱신 안내](docs/facilities/FACILITY_REFRESH.md)를 참고하세요. 전체 목록 비교, 누락 유예, 수동 제외 유지 및 성공 체크포인트를 지원합니다. `refresh-facilities.cmd`로 원할 때 갱신하거나, API 서버 실행 중 매일 자정(KST)에 자동 갱신합니다. [수동·자동 갱신 설정](docs/facilities/FACILITY_REFRESH_SCHEDULE.md)에 실행 조건과 로그 확인 방법을 정리했습니다.
 
+시설 DB는 `backup-facilities.cmd`로 백업할 수 있습니다. 검사·복원 명령과 복원 전 준비 사항은 [시설 DB 백업·복원 안내](docs/facilities/FACILITY_BACKUP.md)를 참고하세요.
+
 ## 실제 도로 데이터 준비
 
 1. [Geofabrik South Korea](https://download.geofabrik.de/asia/south-korea.html)에서 PBF를 받아 `.cache/korea/south-korea.osm.pbf`로 저장합니다.
