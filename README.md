@@ -55,6 +55,8 @@ CCTV 데이터는 [CCTV 수집기·API 신청 안내](docs/facilities/CCTV_IMPOR
 
 ## 검증
 
+운영 DB를 변경하지 않는 백업·복원·HTTP 연동 검증은 [시설 통합 검증](docs/facilities/INTEGRATION_CHECK.md)을 참고하세요. 실제 API dry-run은 명시적인 옵션으로만 실행합니다.
+
 ```sh
 python -m unittest discover -s tests -v
 node tests/test_web_map.cjs
