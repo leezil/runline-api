@@ -192,6 +192,99 @@ class PlacesTests(unittest.TestCase):
         self.assertEqual(self.request()[1]['items'][0]['location'], [127.01,37.26])
         self.assertEqual(self.request()[1]['data_updated_at']['cctv'], STAMP)
 
+    def status_request(self, **kwargs):
+        return self.request(query='', path='/v1/places/status', **kwargs)
+
+    def test_status_counts_and_map_eligibility(self):
+        self.seed()
+        self.store.upsert_many([
+            replace(self.camera, source_record_id='inactive', active=False),
+            replace(self.camera, source_record_id='unknown', details=CctvDetails('기타', 1, None)),
+            replace(self.camera, source_record_id='other', details=CctvDetails('교통', 1, False)),
+            replace(self.camera, source_record_id='invalid', longitude=None, latitude=None,
+                    coordinate_source='none', coordinate_status='invalid'),
+            replace(self.toilet, source_record_id='failed', coordinate_status='failed'),
+            replace(self.toilet, source_record_id='ambiguous', coordinate_status='ambiguous'),
+            replace(self.toilet, source_record_id='inactive', active=False)])
+        before = self.path.read_bytes()
+        status, data, headers = self.status_request()
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['Cache-Control'], 'no-store')
+        toilet, cctv = data['sources']
+        self.assertEqual(cctv['counts']['stored'], 5)
+        self.assertEqual(cctv['counts']['active'], 4)
+        self.assertEqual(cctv['counts']['inactive'], 1)
+        self.assertEqual(cctv['counts']['map_ready'], self.request()[1]['count'])
+        self.assertEqual(cctv['counts']['map_ready'], 1)
+        self.assertEqual(toilet['counts']['coordinates'],
+                         {'pending': 2, 'valid': 0, 'invalid': 0, 'ambiguous': 1, 'failed': 1})
+        self.assertEqual(toilet['counts']['active_coordinates']['pending'], 1)
+        self.assertEqual(cctv['regions'][0]['counts'], cctv['counts'])
+        self.assertEqual(before, self.path.read_bytes())
+        self.assertNotIn('가상 주소', json.dumps(data, ensure_ascii=False))
+
+    def test_status_empty_uncollected_and_successful_empty(self):
+        status, data, _ = self.status_request()
+        self.assertEqual(status, 200)
+        self.assertTrue(all(not s['ready'] and not s['regions'] for s in data['sources']))
+        self.store.upsert_many([], import_state=('mois_toilet_v2', '3740000', STAMP))
+        toilet = self.status_request()[1]['sources'][0]
+        self.assertTrue(toilet['ready'])
+        self.assertEqual(toilet['counts']['stored'], 0)
+        self.assertEqual(toilet['regions'][0]['last_success_at'], STAMP)
+
+    def test_status_region_isolation_failure_and_legacy_unknown(self):
+        self.store.upsert_many([self.toilet])
+        self.store.upsert_many([replace(self.toilet, source_region_code='3830000')],
+                              import_state=('mois_toilet_v2', '3830000', STAMP))
+        later = '2026-11-13T00:00:00Z'
+        self.store.record_import_failure('mois_toilet_v2', '3830000', later)
+        self.store.record_import_failure('mois_cctv', '3830000', later)
+        toilet, cctv = self.status_request()[1]['sources']
+        self.assertEqual(toilet['counts']['stored'], 2)
+        self.assertIsNone(toilet['data_updated_at'])
+        old, failed = toilet['regions']
+        self.assertEqual(old['last_attempt_status'], 'unknown')
+        self.assertIsNone(old['last_success_at'])
+        self.assertEqual(failed['last_attempt_status'], 'failed')
+        self.assertEqual(failed['last_success_at'], STAMP)
+        self.assertEqual(failed['counts']['stored'], 1)
+        self.assertTrue(toilet['last_import_failed'])
+        self.assertFalse(cctv['ready'])
+        self.assertEqual(cctv['regions'][0]['counts']['stored'], 0)
+
+    def test_status_auth_both_ports_and_shared_rate_limit(self):
+        for server in (self.local, self.external):
+            self.assertEqual(self.status_request(server=server, auth=False)[0], 401)
+            self.assertEqual(self.status_request(server=server, headers={'Authorization':'Bearer wrong'})[0], 401)
+            self.assertEqual(self.status_request(server=server)[0], 200)
+        for _ in range(118):
+            self.assertTrue(self.service.take_places_slot())
+        self.assertEqual(self.status_request()[0], 429)
+        self.assertEqual(self.request()[0], 429)
+
+    def test_status_storage_failures_and_auth_first(self):
+        missing = Path(self.tmp.name) / 'private-file.sqlite3'
+        self.service.facility_store = FacilityStore(missing)
+        self.assertEqual(self.status_request(auth=False)[0], 401)
+        status, data, _ = self.status_request()
+        self.assertEqual((status, data['error']['code']), (503, 'FACILITIES_UNAVAILABLE'))
+        self.assertFalse(missing.exists())
+        self.assertNotIn('private-file', json.dumps(data))
+        missing.write_bytes(b'corrupt')
+        self.assertEqual(self.status_request()[0], 503)
+
+    def test_status_cors_validation_and_sanitized_log(self):
+        headers = {'Origin':'http://localhost:5000', 'Access-Control-Request-Method':'GET',
+                   'Access-Control-Request-Headers':'authorization'}
+        self.assertEqual(self.status_request(server=self.external, method='OPTIONS', auth=False, headers=headers)[0], 204)
+        self.assertEqual(self.status_request(server=self.external, headers={'Origin':'https://evil.test'})[0], 403)
+        self.assertEqual(self.request('key=PRIVATE_QUERY', path='/v1/places/status')[0], 400)
+        logs = json.dumps(self.service.log_snapshot())
+        self.assertIn('/v1/places/status', logs)
+        self.assertNotIn('PRIVATE_QUERY', logs)
+        self.assertNotIn('test-token', logs)
+
 
 if __name__ == '__main__':
     unittest.main()
