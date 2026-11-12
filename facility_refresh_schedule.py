@@ -6,7 +6,7 @@ import subprocess
 import sys
 import threading
 
-from facility_refresh_job import write_json, utc_now
+from facility_refresh_job import write_json, utc_now, run_job
 
 KST = timezone(timedelta(hours=9))
 ROOT = Path(__file__).resolve().parent
@@ -53,6 +53,7 @@ class FacilityRefreshSchedule:
         return result.returncode
 
     def _loop(self):
+        run_job(database=self.database, recover_only=True)
         target = next_run(self.clock(), self.at)
         while not self.stop_event.is_set():
             now = self.clock()
