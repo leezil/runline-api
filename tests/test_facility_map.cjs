@@ -26,10 +26,11 @@ const sandbox = {
   clearTimeout(id) { timers.delete(id); }, setInterval() {},
 };
 vm.runInNewContext(source.slice(source.indexOf('function attachFacilityLayer')), sandbox);
+el('lng').value = '127.01'; el('lat').value = '37.26'; el('map-facility-radius').value = '1000';
 sandbox.attachFacilityLayer(maps, map);
 function flush() { for (const [id, timer] of [...timers]) if (timer.delay === 450) { timers.delete(id); timer.fn(); } }
 const settle = () => new Promise(resolve => setImmediate(resolve));
-const response = (type, truncated = false) => ({ ok: true, json: async () => ({ items: [{ type, name: '<script>unsafe</script>', location: [127.01, 37.26], address: { road: 'road' } }], count: 1, truncated }) });
+const response = (type, truncated = false) => ({ ok: true, json: async () => ({ items: [{ type, location: [128, 38], name: 'outside' }, { type, name: '<script>unsafe</script>', location: [127.01, 37.26], address: { road: 'road' } }], count: 1, truncated }) });
 (async () => {
   el('map-cctv').checked = true; el('map-toilet').checked = true;
   el('map-cctv').events.change(); flush();
@@ -42,17 +43,19 @@ const response = (type, truncated = false) => ({ ok: true, json: async () => ({ 
   overlays[0].options.content.events.click({ stopPropagation() {} });
   assert.equal(info.content.children[0].textContent, 'CCTV · <script>unsafe</script>');
   // A slow response from a previous viewport cannot reintroduce old markers.
-  listeners.idle(); flush(); const old = requests.slice(2);
+  assert.equal(listeners.idle, undefined); assert.equal(listeners.bounds_changed, undefined);
+  el('map-facility-radius').value = '500'; el('map-facility-radius').events.change(); flush(); const old = requests.slice(2);
+  assert.notEqual(requests[0].url, requests[2].url);
   el('map-cctv').checked = false; el('map-toilet').checked = false;
   el('map-cctv').events.change(); flush();
   old.forEach(request => request.resolve(response('cctv'))); await settle();
   assert(overlays.every(overlay => overlay.map === null));
   assert.equal(requests.length, 4);
-  el('map-cctv').checked = true; bounds = [126, 36, 128, 38];
+  el('map-cctv').checked = true; el('lng').value = '0';
   el('map-cctv').events.change(); flush();
-  assert.equal(requests.length, 4); assert.match(el('map-facility-status').textContent, /확대/);
-  bounds = [127, 37.25, 127.02, 37.27]; listeners.idle(); flush();
+  assert.equal(requests.length, 4); assert.match(el('map-facility-status').textContent, /기준 위치/);
+  el('lng').value = '127.01'; el('lng').events.change(); flush();
   requests[4].resolve({ ok: false, status: 429 }); await settle();
   assert.match(el('map-facility-status').textContent, /429/);
-  console.log('PASS: bbox, independent types, auth, coordinate order, safe labels, truncation, stale cancellation, clearing, zoom guard and HTTP errors');
+  console.log('PASS: bbox, independent types, auth, coordinate order, safe labels, truncation, stale cancellation, clearing, radius filtering and no viewport listeners and HTTP errors');
 })().catch(error => { console.error(error); process.exitCode = 1; });

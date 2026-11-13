@@ -96,9 +96,9 @@ class JusoClient:
                 raise GeocodingFailure(error) from None
             self.sleep(2 ** attempt)
 
-    def search(self, address):
+    def search(self, address, *, count=2):
         return self.request(SEARCH_URL, {'confmKey': self.search_key, 'keyword': address,
-                            'currentPage': 1, 'countPerPage': 2, 'resultType': 'json'})
+                            'currentPage': 1, 'countPerPage': count, 'resultType': 'json'})
 
     def coordinates(self, candidate):
         return self.request(COORD_URL, {'confmKey': self.coord_key, 'resultType': 'json',
@@ -200,6 +200,11 @@ def geocode(record, client, transform):
         break
     if candidate is None:
         return Result('failed', 'ADDRESS_NOT_FOUND')
+    return resolve_coordinates(candidate, client, transform)
+
+
+def resolve_coordinates(candidate, client, transform):
+    """Validate building identity, entrance cardinality and projected coordinates."""
     if any(not isinstance(candidate.get(key), str) or not candidate[key].isdigit()
            for key in (*CODE_FIELDS, 'bdMgtSn')):
         raise GeocodingFailure('INVALID_API_RESPONSE')

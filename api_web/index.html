@@ -63,8 +63,8 @@
           <form id="location-search"><label>장소 또는 주소<input id="location-keyword" placeholder="예: 성균관대역, 수원시청" maxlength="100" required></label><button id="location-search-button" disabled>검색</button></form>
           <p id="map-status" class="hint" role="status">카카오맵 연결 중</p>
           <div id="location-results"></div>
-          <div class="toolbar"><label><input id="map-cctv" type="checkbox" disabled> CCTV</label><label><input id="map-toilet" type="checkbox" disabled> 공중화장실</label><button id="map-facility-refresh" type="button" disabled>시설 새로고침</button></div>
-          <p id="map-facility-status" class="hint" role="status">시설을 선택하면 현재 지도 범위에 표시합니다.</p>
+          <div class="toolbar"><label><input id="map-cctv" type="checkbox" disabled> CCTV</label><label><input id="map-toilet" type="checkbox" disabled> 공중화장실</label><label>시설 표시 반경<select id="map-facility-radius" disabled><option value="500">500m</option><option value="1000" selected>1km</option><option value="2000">2km</option><option value="3000">3km</option></select></label><button id="map-facility-refresh" type="button" disabled>시설 새로고침</button></div>
+          <p id="map-facility-status" class="hint" role="status">시설을 선택하면 기준 위치 주변에 표시합니다. 확대·축소로는 다시 조회하지 않습니다.</p>
           <div id="location-map" class="kakao-map" hidden aria-label="기준 위치 지도"></div>
           <p class="hint">검색 결과를 선택하거나 지도를 클릭하면 아래 경도·위도와 요청 JSON에 반영됩니다.</p>
         </section>
