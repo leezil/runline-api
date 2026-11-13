@@ -23,6 +23,7 @@ from local_osm import read_roads as get_osm
 from facility_storage import DATABASE, FacilityStore
 from places_api import PlacesError, validate_query, query_places, query_facility_status
 from facility_refresh_schedule import FacilityRefreshSchedule, parse_time as parse_refresh_time
+from server import get_javascript_key
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "api_web"
@@ -351,10 +352,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             return self.reply({"token": self.server.service.token})
         if path == "/local/request-logs":
             return self.reply({"entries": self.server.service.log_snapshot()})
+        if path == "/local/map-config":
+            return self.reply({"kakao_javascript_key": get_javascript_key()})
         assets = {"/": ("index.html", "text/html; charset=utf-8"),
                   "/request-logs.js": ("request-logs.js", "text/javascript; charset=utf-8"),
                   "/facility-monitor.js": ("facility-monitor.js", "text/javascript; charset=utf-8"),
                   "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                  "/route-map.js": ("route-map.js", "text/javascript; charset=utf-8"),
                   "/style.css": ("style.css", "text/css; charset=utf-8")}
         if path not in assets:
             return self.error("NOT_FOUND", "존재하지 않는 경로입니다.", 404)

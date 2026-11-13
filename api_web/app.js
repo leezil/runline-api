@@ -67,6 +67,7 @@ document.querySelectorAll("[data-shape]").forEach(button => button.addEventListe
 $("clear").addEventListener("click", () => { points = []; paintDrawing(); buildRequest(); });
 
 function markEdited() {
+  window.routeMap?.clear();
   inputRevision++;
   responseData = null; submittedRequest = null;
   $("download").disabled = true; $("result-visual").hidden = true;
@@ -95,6 +96,7 @@ function renderCandidate() {
   const candidate = responseData?.candidates?.[Number($("candidates").value)];
   const svg = $("route-view"); svg.replaceChildren();
   if (!candidate) return;
+  window.routeMap?.render(candidate, responseData.source);
   const series = [
     [candidate.reference || [], "#c47b29", true],
     [candidate.approach || [], "#5377b3", true],
@@ -128,7 +130,7 @@ function renderCandidate() {
   }
   $("visual-note").textContent = responseData.source === "synthetic"
     ? "가상 격자 도로입니다. 실제 지도나 실제 달리기 경로로 사용하면 안 됩니다."
-    : "실제 OSM 도로 좌표의 도식입니다. 배경 지도는 없으며, 두 선을 같은 축에서 비교합니다.";
+    : "지도 연결 시 위에 카카오 배경 지도를 표시합니다. 아래 도식은 실제 OSM 경로와 원본 배치선을 같은 좌표 축에서 비교합니다.";
   $("candidate-info").textContent = `${candidate.acceptable ? "모양 조건 충족" : "비교용 · 추천 아님"} · 러닝 ${candidate.distance_m.toFixed(0)}m · 접근 ${candidate.approach_m.toFixed(0)}m · 평균 오차 ${candidate.mean_error_m.toFixed(1)}m`;
 }
 $("candidates").addEventListener("change", renderCandidate);
@@ -138,6 +140,7 @@ async function sendRequest(authenticated) {
   try { payload = JSON.parse($("request").value); }
   catch { setStatus("요청 JSON 문법을 확인해주세요.", true); return; }
   busy = true; refreshButtons();
+  window.routeMap?.clear();
   const revision = inputRevision, start = performance.now();
   $("result-visual").hidden = true; $("download").disabled = true;
   responseData = null; submittedRequest = null;
