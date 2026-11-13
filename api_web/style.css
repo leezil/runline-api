@@ -46,6 +46,10 @@ code { font-family: Consolas, monospace; overflow-wrap: anywhere; }
 footer { color: #637b71; font-size: 11px; margin-top: 25px; padding: 18px 0; border-top: 1px solid #d9e4de; }
 [hidden] { display: none !important; }
 .kakao-map { height: 360px; width: 100%; margin: 12px 0; border: 1px solid #cedcd4; border-radius: 8px; }
+.facility-map-pin { padding: 3px 5px; border: 2px solid white; border-radius: 12px; font-size: 10px; font-weight: 700; color: white; box-shadow: 0 1px 4px #0005; }
+.facility-map-pin-cctv, .facility-map-pin-cctv:hover { background: #7c3aed; }
+.facility-map-pin-toilet, .facility-map-pin-toilet:hover { background: #007d92; }
+.facility-map-info { padding: 12px 24px 12px 12px; min-width: 180px; max-width: 260px; font-size: 12px; white-space: normal; }
 #location-results { display: grid; gap: 6px; max-height: 230px; overflow: auto; }
 #location-results button { text-align: left; }
 .facility-monitor { margin: 20px 0; }

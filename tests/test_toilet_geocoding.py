@@ -124,6 +124,56 @@ class GeocodingTests(unittest.TestCase):
             self.assertEqual((result.status, result.reason), ('ambiguous', reason))
             self.assertEqual(client.requests, 0)
 
+    def test_road_normalization_preserves_building_identity(self):
+        examples = {
+            '경기 수원시 장안구 서부로2142(율전동)': '경기도 수원시 장안구 서부로 2142',
+            '경기도 수원시 장안구 서부로 2149, 성대역사 (율전동)': '경기도 수원시 장안구 서부로 2149',
+            '경기도 수원시 권선구 동수원로 177번길40(권선동)': '경기도 수원시 권선구 동수원로177번길 40',
+            '경기도 수원시 테스트로10 - 1, 별관 2층': '경기도 수원시 테스트로 10-1',
+        }
+        for original, expected in examples.items():
+            self.assertEqual(geo.normalize_address(original, road=True), expected)
+        for address in [ADDRESS+'-1', ADDRESS+'1', ADDRESS+' 101동', ADDRESS+'-1-2',
+                        ADDRESS+', 12', ADDRESS+', '+ADDRESS+'-1']:
+            self.assertNotEqual(geo.normalize_address(address, road=True), ADDRESS)
+        self.assertEqual(geo.normalize_address('경기도 수원시 테스트동 1-2', road=False),
+                         '경기도 수원시 테스트동 1-2')
+
+    def test_search_uses_normalized_road_but_keeps_source(self):
+        row = self.row()
+        row['address_road'] = '경기 수원시 테스트로10, 건물명 (테스트동)'
+        calls = []
+        client = FakeClient()
+        def search(query):
+            calls.append(query)
+            return 1, [CANDIDATE.copy()]
+        client.search = search
+        self.assertEqual(geo.geocode(row, client, transform).status, 'valid')
+        self.assertEqual(calls, [ADDRESS])
+        self.assertEqual(row['address_road'], '경기 수원시 테스트로10, 건물명 (테스트동)')
+        client.search = lambda _: (1, [dict(CANDIDATE, roadAddrPart1=ADDRESS+'-1')])
+        self.assertEqual(geo.geocode(row, client, transform).reason, 'ADDRESS_MISMATCH')
+
+    def test_normalization_is_not_specific_to_suwon_or_yuljeon(self):
+        cases = [
+            ('서울특별시 중구 세종대로110, 서울시청', '서울특별시 중구 세종대로 110'),
+            ('부산광역시 연제구 중앙대로1001(연산동)', '부산광역시 연제구 중앙대로 1001'),
+            ('대전광역시 서구 둔산로100, 청사', '대전광역시 서구 둔산로 100'),
+            ('제주특별자치도 제주시 문연로6(연동)', '제주특별자치도 제주시 문연로 6'),
+            ('경기도 안양시 동안구 인덕원로 24번길56, 2층', '경기도 안양시 동안구 인덕원로24번길 56'),
+        ]
+        for original, canonical in cases:
+            with self.subTest(address=original):
+                row = self.row(); row['address_road'] = original
+                client = FakeClient()
+                calls = []
+                def search(query):
+                    calls.append(query)
+                    return 1, [dict(CANDIDATE, roadAddrPart1=canonical)]
+                client.search = search
+                self.assertEqual(geo.geocode(row, client, transform).status, 'valid')
+                self.assertEqual(calls, [canonical])
+
     def test_lot_fallback_only_after_zero_road_results(self):
         row = self.row()
         row['address_lot'] = CANDIDATE['jibunAddr']

@@ -19,7 +19,7 @@ from facility_storage import DATABASE, FacilityStore, address_hash
 ROOT = Path(__file__).resolve().parent
 SEARCH_URL = 'https://business.juso.go.kr/addrlink/addrLinkApi.do'
 COORD_URL = 'https://business.juso.go.kr/addrlink/addrCoordApi.do'
-PROVIDER = 'juso-entrance-v1'
+PROVIDER = 'juso-entrance-v2'
 CODE_FIELDS = ('admCd', 'rnMgtSn', 'udrtYn', 'buldMnnm', 'buldSlno')
 MAX_BYTES = 1024 * 1024
 
@@ -135,11 +135,25 @@ def normalize_address(value, *, road=False):
     if not isinstance(value, str):
         return ''
     value = ' '.join(value.split())
-    # Only remove a trailing reference parenthesis, never building numbers/details.
-    if road:
-        value = re.sub(r'\s*\([^()]*\)$', '', value).strip()
     if value.startswith('경기 '):
         value = '경기도 ' + value[3:]
+    if road:
+        # This geocoder resolves building entrances, not floors or indoor toilets.
+        # Strip a comma-delimited building description only after recognizing a
+        # complete road address. Keep the original stored address untouched.
+        base, comma, description = value.partition(',')
+        if comma and (re.match(r'\s*[0-9]+(?:-[0-9]+)?(?:\s|,|$)', description)
+                      or re.search(r'(?:^|\s)[^\s,()]+(?:대로|로|길)\s*[0-9]', description)):
+            return value  # A list of building numbers/addresses is not a label.
+        base = base.strip()
+        base = re.sub(r'\s*\([^()]*\)$', '', base).strip()
+        base = re.sub(r'(대로|로|길)\s+(?=[0-9]+(?:번|안)?길)', r'\1', base)
+        match = re.fullmatch(r'(.+\s)([^\s,()]+(?:대로|로|길))\s*([0-9]+(?:\s*-\s*[0-9]+)?)', base)
+        if match:
+            number = re.sub(r'\s+', '', match[3])
+            return f'{match[1]}{match[2]} {number}'
+        # Do not guess where an unrecognized address or building number ends.
+        value = re.sub(r'\s*\([^()]*\)$', '', value).strip()
     return value
 
 
@@ -174,7 +188,7 @@ def geocode(record, client, transform):
     for address, road in addresses:
         if not address:
             continue
-        total, rows = client.search(address)
+        total, rows = client.search(normalize_address(address, road=road))
         if total == 0:
             continue
         if total != 1 or len(rows) != 1:
