@@ -36,7 +36,11 @@ ngrok이 계정 인증을 요구하면 본인의 ngrok 계정에서 에이전트
 
 `GET /local/map-config`는 브라우저용 JavaScript 키만 제공하며 외부 API 전용 8083에서는 404로 차단한다. `.env` 및 다른 인증키는 응답하지 않는다.
 
-검증: `python -m unittest discover -s tests -p test_api_server.py` 및 `node tests/test_route_map.cjs`.
+기준 위치 지도 위의 **CCTV / 공중화장실** 체크박스로 시설을 켜고 끈다. CCTV는 보라색, 화장실은 청록색 WC로 표시하며 마커를 누르면 이름과 주소를 확인할 수 있다. 지도 이동·확대 후 현재 범위를 조회하고, 체크한 시설은 화면이 보이는 동안 30초마다 갱신한다. ‘시설 새로고침’으로 즉시 갱신할 수도 있다.
+
+시설은 기존 `/v1/places` API에서 읽는다. 유효 좌표가 있는 활성 시설만 표시하며 CCTV는 방범 목적이 확인된 자료만 포함한다. 종류별 최대 500건을 요청하고 일부만 반환되면 확대 안내를 표시한다. 조회 범위는 가로·세로 10km 이하로 제한한다. 좌표 변환 작업에서 새로 저장된 화장실도 다음 조회에 반영된다. 시설 조회는 좌표 변환 API를 호출하지 않는다.
+
+검증: `python -m unittest discover -s tests -p test_api_server.py`, `node tests/test_route_map.cjs`, `node tests/test_facility_map.cjs`.
 
 ## API 호출
 

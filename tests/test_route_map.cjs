@@ -29,6 +29,7 @@ const maps = {
     setBounds(bounds) { this.bounds = bounds; } relayout() {}
   },
   Marker: Overlay, Polyline: Overlay,
+  InfoWindow: class { close() {} },
   event: { addListener(map, event, fn) { map[event] = fn; } },
   services: {
     Status: { OK: 'OK', ZERO_RESULT: 'ZERO', ERROR: 'ERROR' },
@@ -41,7 +42,7 @@ const sandbox = {
   window: { kakao: { maps } }, location: { origin: 'http://localhost:8082' },
   fetch: async () => ({ ok: true, json: async () => ({ kakao_javascript_key: 'a'.repeat(32) }) }),
   Event: class { constructor(type) { this.type = type; } },
-  ResizeObserver: class { observe() {} }, setTimeout, clearTimeout,
+  ResizeObserver: class { observe() {} }, setTimeout, clearTimeout, setInterval() {},
 };
 vm.runInNewContext(fs.readFileSync(require('node:path').join(__dirname, '../api_web/route-map.js'), 'utf8'), sandbox);
 setImmediate(() => {
