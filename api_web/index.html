@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DrawRun · 로컬 API 테스트</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="/route-map.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/facility-monitor.js" defer></script>
   <script src="/request-logs.js" defer></script>
@@ -57,6 +58,14 @@
         <canvas id="drawing" width="500" height="400" aria-label="한 번에 이어진 그림을 그리는 캔버스"></canvas>
         <div class="toolbar"><button type="button" data-shape="corner">ㄱ자</button><button type="button" data-shape="square">사각형</button><button type="button" data-shape="star">별</button><button type="button" id="clear">지우기</button><span id="point-count"></span></div>
         <p class="hint">새로 그리면 이전 선을 대체합니다. 예제는 입력만 넣으며, 엔진은 모양의 이름을 인식하지 않습니다.</p>
+        <section aria-label="기준 위치 검색">
+          <h3>카카오맵으로 기준 위치 선택</h3>
+          <form id="location-search"><label>장소 또는 주소<input id="location-keyword" placeholder="예: 성균관대역, 수원시청" maxlength="100" required></label><button id="location-search-button" disabled>검색</button></form>
+          <p id="map-status" class="hint" role="status">카카오맵 연결 중</p>
+          <div id="location-results"></div>
+          <div id="location-map" class="kakao-map" hidden aria-label="기준 위치 지도"></div>
+          <p class="hint">검색 결과를 선택하거나 지도를 클릭하면 아래 경도·위도와 요청 JSON에 반영됩니다.</p>
+        </section>
         <form id="controls">
           <label>도로 데이터<select id="source"><option value="demo">가상 도로 · 인터넷 없이 기능 테스트</option><option value="osm" selected>실제 OSM 도로</option></select></label>
           <div class="fields"><label>경도<input id="lng" type="number" value="126.9662925" step="any" min="124" max="132" required></label><label>위도<input id="lat" type="number" value="37.3033769" step="any" min="32" max="39" required></label></div>
@@ -87,6 +96,7 @@
           <p id="result-summary">아직 생성한 결과가 없습니다.</p>
           <div id="result-visual" hidden>
             <label>후보 선택<select id="candidates"></select></label>
+            <div id="result-map" class="kakao-map" hidden aria-label="반환 경로 지도"></div>
             <svg id="route-view" viewBox="0 0 600 340" role="img" aria-label="반환된 경로와 원본 선을 같은 좌표 축으로 비교"></svg>
             <p class="legend"><span class="route-color">생성 경로</span><span class="reference-color">원본 배치선</span><span class="approach-color">접근 구간</span></p>
             <p class="hint" id="visual-note"></p>

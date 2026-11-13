@@ -45,6 +45,9 @@ pre { font: 11px/1.6 Consolas, monospace; overflow: auto; max-height: 400px; pad
 code { font-family: Consolas, monospace; overflow-wrap: anywhere; }
 footer { color: #637b71; font-size: 11px; margin-top: 25px; padding: 18px 0; border-top: 1px solid #d9e4de; }
 [hidden] { display: none !important; }
+.kakao-map { height: 360px; width: 100%; margin: 12px 0; border: 1px solid #cedcd4; border-radius: 8px; }
+#location-results { display: grid; gap: 6px; max-height: 230px; overflow: auto; }
+#location-results button { text-align: left; }
 .facility-monitor { margin: 20px 0; }
 .facility-table-wrap { overflow: auto; max-height: 360px; }
 .facility-table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }

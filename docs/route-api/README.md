@@ -24,7 +24,21 @@ $ngrok = '.\.cache\ngrok\ngrok.exe'
 
 ngrok이 계정 인증을 요구하면 본인의 ngrok 계정에서 에이전트를 먼저 인증한다. 팀원에게 전달할 것은 **Forwarding에 표시된 HTTPS 기본 주소**와 **경로 API 테스트 토큰**이다. ngrok 계정의 authtoken을 전달하지 않는다. 서버의 API 토큰은 `DRAWRUN_API_TOKEN` 환경 변수가 우선이고, 없으면 서버 폴더의 `.api-token`을 사용한다. 토큰을 채팅 로그·Git·배포 앱에 넣지 않는다.
 
-## 호출하는 프로젝트
+## 8082 카카오맵 테스트 화면
+
+1. 프로젝트 `.env`의 `KAKAO_JAVASCRIPT_KEY`에 카카오 JavaScript 키를 설정한다. REST API 키와는 다르다.
+2. [카카오 지도 공식 안내](https://apis.map.kakao.com/web/guide/)에 따라 해당 키의 JavaScript SDK 도메인에 `http://localhost:8082`를 등록한다. `http://127.0.0.1:8082`로도 접속한다면 이 주소도 등록한다.
+3. 서버 코드 업데이트 후 서버를 재시작한다. 이후 키 값만 수정할 때는 페이지 새로고침으로 반영된다.
+4. ‘카카오맵으로 기준 위치 선택’에서 장소·주소를 검색하고 결과를 선택하거나 지도를 클릭한다. 경도·위도와 요청 JSON의 `location`이 함께 갱신된다.
+5. ‘API로 경로 생성’을 누르면 실제 OSM 후보가 카카오 지도에 표시된다. 후보 선택으로 경로를 바꿀 수 있다. 초록색은 생성 경로, 주황색 점선은 원본 배치선, 파란색 점선은 접근 구간이다.
+
+가상 도로는 기존 도식에만 표시한다. 지도 키 미설정·연결 실패 시에도 좌표 직접 입력과 경로 도식을 사용할 수 있다. 장소 검색과 지도 배경은 카카오, 경로 계산은 기존 로컬 OSM 엔진을 사용한다. 카카오 길찾기 API를 호출하는 기능은 아니다.
+
+`GET /local/map-config`는 브라우저용 JavaScript 키만 제공하며 외부 API 전용 8083에서는 404로 차단한다. `.env` 및 다른 인증키는 응답하지 않는다.
+
+검증: `python -m unittest discover -s tests -p test_api_server.py` 및 `node tests/test_route_map.cjs`.
+
+## API 호출
 
 1. **상태:** `GET /v1/health` (인증 없음). 외부용 포트의 정상 응답: `{"ok":true,"version":"v1","local_only":false}`.
 2. **경로 생성:** `POST /v1/routes`. 헤더는 `Authorization: Bearer <경로 API 토큰>`, `Content-Type: application/json`.

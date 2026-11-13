@@ -138,6 +138,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(json.loads(raw), {"token": self.server.service.token})
         self.assertNotEqual(RouteService().token, RouteService().token)
 
+    def test_map_config_contains_only_javascript_key(self):
+        with patch("api_server.get_javascript_key", return_value="mock-web-key"):
+            status, raw, headers = self.request("GET", "/local/map-config", authenticated=False)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(raw), {"kakao_javascript_key": "mock-web-key"})
+        self.assertIn("no-store", headers["Cache-Control"])
+        status, _, _ = self.request("GET", "/route-map.js", authenticated=False)
+        self.assertEqual(status, 200)
+
     def test_playground_defaults_to_existing_skk_osm_area(self):
         status, raw, _ = self.request("GET", "/", authenticated=False)
         self.assertEqual(status, 200)
@@ -292,7 +301,7 @@ class TunnelTests(unittest.TestCase):
         self.assertNotIn(self.server.service.token.encode(), raw)
 
     def test_private_paths_never_exist_even_with_forged_local_host(self):
-        paths = ("/", "/app.js", "/style.css", "/local/bootstrap", "/local/bootstrap?fake=1",
+        paths = ("/", "/app.js", "/style.css", "/local/map-config", "/route-map.js", "/local/bootstrap", "/local/bootstrap?fake=1",
                  "/.env", "/.api-token", "/api/config", "/../local/bootstrap", "/%2e%2e/local/bootstrap")
         for path in paths:
             for headers in (self.forwarded(), {}, {"Host": f"localhost:{self.server.server_port}"}):
