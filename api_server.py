@@ -269,6 +269,12 @@ class ApiHandler(BaseHTTPRequestHandler):
             details.update(candidate_count=len(data["candidates"]),
                            recommended_count=data.get("recommended_count", 0),
                            request_id=data.get("request_id"))
+        if self._request_log and self._request_log['path'] == '/v1/places' and 'items' in data:
+            details.update(facility_count=data['count'], truncated=data['truncated'])
+        if self._request_log and self._request_log['path'] == '/v1/places/status' and 'sources' in data:
+            details['facility_summary'] = [{'type': item['type'], 'stored': item['counts']['stored'],
+                                            'map_ready': item['counts']['map_ready']}
+                                           for item in data['sources']]
         self.update_request_log(**details)
         self.send_bytes(json.dumps(data, ensure_ascii=False, allow_nan=False).encode("utf-8"), status, headers=headers)
 
@@ -320,11 +326,14 @@ class ApiHandler(BaseHTTPRequestHandler):
                         raise PlacesError('INVALID_INPUT', '시설 상태 조회에는 쿼리 매개변수를 사용하지 않습니다.')
                 else:
                     validated = validate_query(query)
+                    self.update_request_log(facility_types=list(validated[1]))
                 if not self.server.service.take_places_slot():
                     return self.error('RATE_LIMITED', '시설 조회는 두 포트를 합쳐 분당 최대 120회입니다.',
                                       429, {'Retry-After': '60'})
                 if path == '/v1/places/status':
+                    self.update_request_log(stage='reading_facilities')
                     return self.reply(query_facility_status(self.server.service.facility_store))
+                self.update_request_log(stage='reading_facilities')
                 return self.reply(query_places(self.server.service.facility_store, validated))
             except PlacesError as error:
                 return self.error(error.code, error.message, error.status)
@@ -344,6 +353,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return self.reply({"entries": self.server.service.log_snapshot()})
         assets = {"/": ("index.html", "text/html; charset=utf-8"),
                   "/request-logs.js": ("request-logs.js", "text/javascript; charset=utf-8"),
+                  "/facility-monitor.js": ("facility-monitor.js", "text/javascript; charset=utf-8"),
                   "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                   "/style.css": ("style.css", "text/css; charset=utf-8")}
         if path not in assets:
