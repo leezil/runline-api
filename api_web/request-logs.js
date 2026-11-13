@@ -5,7 +5,7 @@
   const filter = document.getElementById('log-filter');
   const pause = document.getElementById('log-pause');
   let paused = false, entries = [];
-  const stages = {received:'요청 접수', loading_roads:'도로 읽는 중', calculating:'경로 계산 중', completed:'응답 완료', interrupted:'처리 중단'};
+  const stages = {received:'요청 접수', reading_facilities:'시설 DB 조회 중', loading_roads:'도로 읽는 중', calculating:'경로 계산 중', completed:'응답 완료', interrupted:'처리 중단'};
   function render() {
     body.replaceChildren();
     const selected = entries.filter(e => filter.value === 'all' || e.channel === 'external');
@@ -35,10 +35,15 @@
       try {
         const response = await fetch('/local/request-logs', {cache:'no-store', signal:AbortSignal.timeout(5000)});
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        entries = (await response.json()).entries; render();
+        const next = (await response.json()).entries;
+        if (!paused) {
+          entries = next; render();
+          document.dispatchEvent(new CustomEvent('facility-log-update', {detail: entries}));
+        }
         if (!paused) connection.textContent = `연결됨 · ${new Date().toLocaleTimeString('ko-KR')} 갱신`;
       } catch (error) { connection.textContent = `연결 끊김 · 자동 재시도 (${error.message})`; }
     }
+    document.dispatchEvent(new CustomEvent('facility-log-connection', {detail: connection.textContent}));
     setTimeout(poll, 1000);
   }
   poll();

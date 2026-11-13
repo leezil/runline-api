@@ -6,6 +6,7 @@
   <title>DrawRun · 로컬 API 테스트</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
+  <script src="/facility-monitor.js" defer></script>
   <script src="/request-logs.js" defer></script>
 </head>
 <body>
@@ -23,6 +24,32 @@
       <div class="toolbar"><label>표시 범위 <select id="log-filter"><option value="external">외부 API만</option><option value="all">외부 + 로컬 테스트</option></select></label><button id="log-pause" type="button">갱신 일시정지</button><span id="log-connection" role="status">로그 연결 중</span></div>
       <p class="hint">토큰·요청 본문·그림 좌표는 기록하지 않습니다. ngrok에서 차단되어 서버에 도달하지 않은 요청은 표시되지 않습니다.</p>
       <div style="overflow:auto;max-height:360px"><table style="width:100%;border-collapse:collapse;text-align:left;white-space:nowrap"><thead><tr><th>접수 시간</th><th>구분</th><th>요청</th><th>처리 단계</th><th>HTTP</th><th>소요 시간</th><th>결과</th></tr></thead><tbody id="request-log-body"></tbody></table></div>
+    </section>
+    <section class="panel facility-monitor" aria-labelledby="facility-monitor-title">
+      <p class="eyebrow">FACILITIES / API MONITOR</p>
+      <h2 id="facility-monitor-title">CCTV · 공중화장실 API 모니터링</h2>
+      <p>시설 조회·데이터 상태 요청의 HTTP 상태, 처리 시간과 반환 건수를 확인합니다. 위 로그와 최근 200건을 공유하며 서버 재시작 시 초기화됩니다.</p>
+      <div class="toolbar">
+        <label>접속 구분<select id="facility-log-channel"><option value="all">외부 + 로컬</option><option value="external">외부 API</option><option value="local">로컬</option></select></label>
+        <label>요청 종류<select id="facility-log-kind"><option value="all">시설 요청 전체</option><option value="cctv">CCTV 조회</option><option value="toilet">화장실 조회</option><option value="status">데이터 상태 조회</option></select></label>
+        <span id="facility-log-connection" role="status">로그 연결 중</span>
+      </div>
+      <p id="facility-log-summary" role="status"></p>
+      <div class="facility-table-wrap"><table class="facility-table"><thead><tr><th>접수 시간</th><th>구분</th><th>요청 / 종류</th><th>처리 단계</th><th>HTTP</th><th>소요 시간</th><th>결과 / 오류</th></tr></thead><tbody id="facility-log-body"></tbody></table></div>
+      <p class="hint">위의 갱신 일시정지 버튼으로 로그 갱신을 함께 제어합니다. 토큰·좌표·응답 원문은 서버 로그에 저장하지 않습니다. 인증·입력 오류로 종류를 확인하지 못한 요청은 ‘시설 요청 전체’에서 확인하세요.</p>
+      <details><summary>시설 API 직접 호출 · 요청과 응답 확인</summary>
+        <p>아래 호출은 로컬 DB를 읽기만 하며 공공데이터 수집·좌표 변환을 실행하지 않습니다. 페이지의 Bearer 토큰을 사용합니다.</p>
+        <form id="facility-query-form">
+          <div class="fields"><label>서쪽 경도<input id="facility-west" type="number" step="any" value="127.00" required></label><label>남쪽 위도<input id="facility-south" type="number" step="any" value="37.25" required></label></div>
+          <div class="fields"><label>동쪽 경도<input id="facility-east" type="number" step="any" value="127.02" required></label><label>북쪽 위도<input id="facility-north" type="number" step="any" value="37.27" required></label></div>
+          <label>조회 종류<select id="facility-query-type"><option value="cctv">CCTV</option><option value="toilet">공중화장실</option><option value="toilet,cctv">둘 다</option></select></label>
+          <div class="toolbar"><button type="submit" id="facility-query-send">시설 조회</button><button type="button" id="facility-status-send">전체 데이터 상태 조회</button></div>
+        </form>
+        <p class="hint">조회 영역은 가로·세로 각각 10km 이하, 최대 200건을 요청합니다. 화장실은 좌표 대기 중이면 200 응답이어도 0건입니다. truncated가 true이면 지도를 확대해 조회하세요.</p>
+        <p id="facility-call-status" role="status">아직 호출하지 않았습니다.</p>
+        <code id="facility-call-request"></code>
+        <pre id="facility-call-response">응답 없음</pre>
+      </details>
     </section>
     <div class="workspace">
       <section class="panel">

@@ -14,6 +14,8 @@ python api_server.py --port 8082
 
 http://localhost:8082 에서 테스트합니다. 도로 데이터가 없는 첫 실행에서는 **가상 도로**를 선택하세요. 가상 도로 결과는 실제 러닝 코스가 아닙니다.
 
+8082 화면의 **CCTV · 공중화장실 API 모니터링**에서 로컬·외부 시설 요청의 HTTP 상태, 처리 시간, 반환 건수와 오류 코드를 확인할 수 있습니다. ‘시설 API 직접 호출’을 펼치면 지도 범위별 시설 조회와 전체 데이터 상태 조회를 실행하고 응답 JSON을 확인할 수 있습니다. 수집·갱신 배치 로그가 아니라 앱에서 호출하는 시설 조회 API의 모니터입니다. 토큰·좌표·응답 원문은 서버 요청 로그에 저장하지 않으며, 화면에서 직접 호출한 응답은 해당 페이지에만 표시합니다. 로그는 기존 요청 로그와 최근 200건을 공유하고 서버 재시작 시 초기화됩니다.
+
 기존 지도 실험 화면은 `python server.py`로 실행한 뒤 http://localhost:8080 에서 사용할 수 있습니다. 카카오맵 연결 시 `.env.example`을 `.env`로 복사하고 본인의 JavaScript 키를 입력하세요. 카카오 개발자 콘솔에서 로컬 도메인을 등록해야 합니다. 웹 SDK 키는 브라우저에 전달되므로 도메인 제한을 설정하고 어드민 키를 사용하지 마세요.
 
 ## API 연동
@@ -60,6 +62,7 @@ CCTV 데이터는 [CCTV 수집기·API 신청 안내](docs/facilities/CCTV_IMPOR
 ```sh
 python -m unittest discover -s tests -v
 node tests/test_web_map.cjs
+node tests/test_facility_monitor.cjs
 ```
 
 실제 도로 데이터가 필요한 테스트는 관련 환경 변수나 로컬 데이터가 없으면 건너뛸 수 있습니다. JavaScript 회귀 테스트에는 Node.js가 필요합니다.

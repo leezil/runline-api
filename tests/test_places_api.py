@@ -223,6 +223,24 @@ class PlacesTests(unittest.TestCase):
         self.assertEqual(before, self.path.read_bytes())
         self.assertNotIn('가상 주소', json.dumps(data, ensure_ascii=False))
 
+    def test_facility_monitor_logs_only_safe_summary(self):
+        self.seed()
+        self.request(QUERY+'&types=cctv')
+        self.status_request()
+        # The log is finalized after response write; only inspect summary fields here.
+        logs = self.service.log_snapshot()
+        places = next(e for e in logs if e['path'] == '/v1/places')
+        self.assertEqual(places['facility_types'], ['cctv'])
+        self.assertEqual(places['facility_count'], 1)
+        self.assertFalse(places['truncated'])
+        status = next(e for e in logs if e['path'] == '/v1/places/status')
+        self.assertEqual(status['facility_summary'], [
+            {'type':'toilet','stored':1,'map_ready':0}, {'type':'cctv','stored':1,'map_ready':1}])
+        raw = json.dumps(logs, ensure_ascii=False)
+        for secret in ('test-token','가상 주소','127.02','items','address'):
+            self.assertNotIn(secret, raw)
+        self.assertEqual(self.request(query='', path='/facility-monitor.js', server=self.external)[0], 404)
+
     def test_status_empty_uncollected_and_successful_empty(self):
         status, data, _ = self.status_request()
         self.assertEqual(status, 200)

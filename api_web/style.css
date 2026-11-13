@@ -45,4 +45,9 @@ pre { font: 11px/1.6 Consolas, monospace; overflow: auto; max-height: 400px; pad
 code { font-family: Consolas, monospace; overflow-wrap: anywhere; }
 footer { color: #637b71; font-size: 11px; margin-top: 25px; padding: 18px 0; border-top: 1px solid #d9e4de; }
 [hidden] { display: none !important; }
+.facility-monitor { margin: 20px 0; }
+.facility-table-wrap { overflow: auto; max-height: 360px; }
+.facility-table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
+.facility-table th, .facility-table td { padding: 10px 12px 10px 0; border-bottom: 1px solid #c6ddd1; }
+.facility-table tr[data-error="true"] { color: #b53a35; }
 @media (max-width: 800px) { main { padding: 20px 14px; }.workspace { grid-template-columns: 1fr; }h1 { font-size: 23px; }header { flex-direction: column; }.panel { padding: 18px; } }
