@@ -114,6 +114,8 @@ def parse_response(raw):
             raise GeocodingFailure('API_TEMPORARY_ERROR')
         if str(code) in {'E0001', 'E0014'}:
             raise GeocodingFailure('API_AUTH_ERROR')
+        if str(code) == 'E0013':
+            raise GeocodingFailure('ADDRESS_QUERY_REJECTED')
         if str(code) != '0':
             raise GeocodingFailure('API_REJECTED_REQUEST')
         total = common['totalCount']
@@ -188,7 +190,12 @@ def geocode(record, client, transform):
     for address, road in addresses:
         if not address:
             continue
-        total, rows = client.search(normalize_address(address, road=road))
+        try:
+            total, rows = client.search(normalize_address(address, road=road))
+        except GeocodingFailure as error:
+            if str(error) == 'ADDRESS_QUERY_REJECTED':
+                return Result('invalid', 'ADDRESS_QUERY_REJECTED')
+            raise
         if total == 0:
             continue
         if total != 1 or len(rows) != 1:
