@@ -85,3 +85,39 @@ python toilet_geocoding.py --region-code 3830000 --limit 1000 --max-requests 100
 `python -m unittest discover -s tests -p test_toilet_geocoding.py -v`
 
 가상 응답으로 매칭, 모호한 후보 배제, 결측·비정상 좌표, 지번 대체, 재시도·예산, 키 비노출, 재개, 동시 변경 보호, 주소 변경 무효화를 검증한다. pyproj 설치 시 투영 원점 `(1000000, 2000000)` → `(127.5, 38)` 및 축 순서를 검증한다. 미설치 환경에서는 좌표계 테스트만 skip한다.
+
+## 서울·경기 일괄 처리
+
+`toilet_geocoding_batch.py`는 서울 25개 자치구와 경기도 31개 시·군의
+수집 상태를 먼저 확인하고, 활성 화장실 중 `pending`만 순차 변환한다.
+미수집 지역이 있으면 `REGION_IMPORT_REQUIRED`로 중단한다. 수집에 성공했으나
+제공 API가 0건을 반환한 지역은 `empty_regions`에 별도로 표시한다.
+
+```powershell
+# API 호출·DB 변경 없이 범위와 남은 건수 확인
+python toilet_geocoding_batch.py --dry-run
+
+# 기존 .env의 승인키와 저장 허용 설정을 사용
+python toilet_geocoding_batch.py --max-requests 10000
+```
+
+실행 전 자동 SQLite 백업을 만들며 갱신·복원 작업과 같은 잠금을 사용한다.
+기존 단일 지역 변환기나 검토 도구를 동시에 실행하지 않는다.
+최소 1초 호출 간격과 재시도 포함 10,000회 실행 예산을 유지한다.
+예산 소진 시 완료된 행은 유지되고, 같은 명령을 다시 실행하면 남은
+`pending`부터 진행한다. 25건 단위 진행 상황과 최종 결과는
+`.cache/facilities/geocoding-batches/`에 기록한다. 실행 중 강제 종료되면
+마지막 보고서보다 DB가 더 진행되었을 수 있으므로 재실행 전 dry-run으로 확인한다.
+
+`status=processed`는 대기 항목 처리가 끝났다는 뜻이며 모든 화장실의 좌표
+확보를 뜻하지 않는다. `after.unresolved`의 모호한 주소·미검색·오류 항목은
+기존 `toilet_geocoding_review.py`로 정확 일치 후보를 재검토한다.
+기존 성공 좌표와 원본 주소는 보존한다. DB, 승인키, 실행 보고서는 Git에
+포함하지 않으며 배치 코드·테스트·사용 설명만 커밋한다.
+
+대량 실행은 `--passes 10`으로 최대 10개의 호출 예산 구간을 순차 처리할 수
+있다. 각 구간은 최대 10,000회이며 예산 소진 때만 다음 구간으로 넘어간다.
+인증 오류·네트워크 오류·응답 형식 변경·진행 불능에서는 즉시 멈춘다.
+구간 사이에도 최소 1초 간격을 유지하며 공급자의 호출 제한을 해제하지 않는다.
+공급자가 E0013(검색 금지문자)을 반환한 주소는 `ADDRESS_QUERY_REJECTED`로
+분리한다. 이 주소는 자동 축약하거나 다른 위치로 확정하지 않는다.

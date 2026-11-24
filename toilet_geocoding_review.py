@@ -15,6 +15,7 @@ from toilet_geocoding import (ROOT, CODE_FIELDS, GeocodingFailure, JusoClient,
 
 PROVIDER = 'juso-exact-review-v1'
 LABELS = {
+    'ADDRESS_QUERY_REJECTED': '주소 검색 금지문자 · 원본 주소 검토 필요',
     'EXACT_MATCH': '정확한 주소 후보 1개 · 저장 전',
     'MATCHED_ENTRANCE': '좌표 확보', 'MISSING_ADDRESS': '주소 없음',
     'ADDRESS_NOT_FOUND': '검색 결과 없음', 'ADDRESS_MISMATCH': '정확한 주소 후보 없음',
@@ -39,7 +40,13 @@ def inspect_address(record, client):
         if not record[field]:
             continue
         query = normalize_address(record[field], road=road)
-        total, rows = client.search(query, count=100)
+        try:
+            total, rows = client.search(query, count=100)
+        except GeocodingFailure as error:
+            if str(error) == 'ADDRESS_QUERY_REJECTED':
+                review['reason'] = 'ADDRESS_QUERY_REJECTED'
+                return review, None
+            raise
         exact = []
         candidates = []
         for row in rows:
